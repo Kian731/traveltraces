@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>旅跡｜我的旅行記錄</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#home" aria-label="旅跡首頁"><span>旅</span>旅跡</a>
+    <nav><a href="#home">首頁</a><a href="#knowledge">旅行知識庫</a><button id="backupBtn" class="link-button">備份資料</button></nav>
+  </header>
+  <main id="app"></main>
+  <dialog id="tripDialog">
+    <form id="tripForm" method="dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">新增旅程</p><h2>把下一段旅程寫下來</h2></div><button class="icon-button" value="cancel" aria-label="關閉">×</button></div>
+      <div class="form-grid">
+        <label>旅程標題<input required name="title" placeholder="例如：東京櫻花之旅" /></label>
+        <label>目的國家<input required name="country" list="countryList" placeholder="日本" /></label>
+        <label>出發地／機場<input required name="origin" placeholder="台北 TPE" /></label>
+        <label>抵達地／機場<input required name="destination" placeholder="東京 NRT" /></label>
+        <label>出發時間<input required name="startAt" type="datetime-local" /></label>
+        <label>返程時間<input required name="endAt" type="datetime-local" /></label>
+        <label>航空公司<input name="airline" placeholder="中華航空" /></label>
+        <label>航班號碼<input name="flight" placeholder="CI100" /></label>
+        <label>旅伴<input name="companions" placeholder="可輸入多位旅伴" /></label>
+        <label>預算<input name="budget" type="number" min="0" placeholder="30000" /></label>
+      </div>
+      <fieldset><legend>自訂欄位</legend><div id="customFields"></div><button type="button" class="text-action" id="addFieldBtn">＋ 新增欄位</button></fieldset>
+      <div class="dialog-actions"><button value="cancel" class="secondary">取消</button><button id="saveTripBtn" value="default">建立旅程</button></div>
+    </form>
+  </dialog>
+  <datalist id="countryList"><option>馬來西亞</option><option>泰國</option><option>台灣</option><option>日本</option><option>中國</option><option>韓國</option></datalist>
+  <input id="importInput" type="file" accept="application/json" hidden />
+  <script src="app.js"></script>
+</body>
+</html>
