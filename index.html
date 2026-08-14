@@ -1,1 +1,51 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>旅跡｜旅行記錄</title><link rel="stylesheet" href="styles.css"></head><body><header><a href="#home" class="brand">旅跡</a><nav><a href="#home">首頁</a><a href="#knowledge">旅行知識庫</a><button id="import">匯入資料</button><button id="backup">備份資料</button></nav></header><main id="app"></main><input id="file" type="file" accept="application/json" hidden><dialog id="modal"></dialog><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="簡潔、好用的個人旅行紀錄與規劃工具。">
+  <meta name="theme-color" content="#f6f6f2">
+  <title>旅跡 · 我的旅行紀錄</title>
+  <link rel="preconnect" href="https://images.unsplash.com">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#app">跳到主要內容</a>
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="brand" href="#home" aria-label="旅跡首頁">
+        <span class="brand-mark" aria-hidden="true">旅</span>
+        <span>旅跡</span>
+      </a>
+      <div class="nav-actions">
+        <button class="button button-ghost desktop-only" id="import" type="button">匯入</button>
+        <button class="button button-ghost desktop-only" id="backup" type="button">備份</button>
+        <button class="button button-primary" id="new-trip" type="button">
+          <span aria-hidden="true">＋</span><span class="desktop-only">新增旅程</span><span class="mobile-only">新增</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="app" tabindex="-1"></main>
+  <footer class="site-footer">
+    <div>
+      <a class="footer-brand" href="#home"><span class="brand-mark" aria-hidden="true">旅</span><span>旅跡</span></a>
+      <p>由 Kian 製作與維護。為每一次出發保留期待，也替走過的風景留下一個安靜的位置。</p>
+    </div>
+    <div class="footer-actions">
+      <span>Personal travel archive · 2026</span>
+      <a class="button button-soft" href="#settings">網站設定</a>
+    </div>
+  </footer>
+  <input id="file" type="file" accept="application/json,.json" hidden>
+
+  <dialog id="modal" aria-labelledby="modal-title">
+    <div id="modal-content"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="catalog.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
