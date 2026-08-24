@@ -137,21 +137,27 @@ main { width: min(calc(100% - 40px), var(--max)); margin: auto; padding: 38px 0 
 .detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 28px; }
 .detail-grid span { display: block; color: var(--muted); font-size: 12px; }
 .detail-grid b { font-size: 14px; }
+.detail-status { grid-column: 1 / -1; }
 .table-card { overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
 .data-row { display: grid; grid-template-columns: 140px 1.15fr 1fr 1.6fr; gap: 20px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .data-row:last-child { border-bottom: 0; }
 .data-row.header { padding-block: 12px; background: var(--surface-soft); color: var(--muted); font-size: 12px; font-weight: 700; }
 .expense-row { grid-template-columns: 1.05fr 1.15fr .55fr .65fr 1.6fr; }
 .expense-row small { display: block; margin-top: 3px; color: var(--accent); font-weight: 700; }
+.expense-display-head, .expense-display-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(330px, 2fr) minmax(160px, 1.35fr); gap: 20px; align-items: center; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+.expense-display-head { padding-block: 12px; background: var(--surface-soft); color: var(--muted); font-size: 12px; font-weight: 700; }
+.expense-numbers-head, .expense-numbers { display: grid; grid-template-columns: minmax(150px, 1.5fr) minmax(50px, .55fr) minmax(58px, .65fr); gap: 12px; align-items: center; min-width: 0; }
+.expense-numbers small { display: block; margin-top: 3px; color: var(--accent); font-weight: 700; }
+.expense-note { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
 .total { display: flex; justify-content: flex-end; gap: 24px; padding: 18px 22px; border-top: 1px solid var(--line); background: var(--surface-soft); }
 .total strong { font-size: 20px; }
 
 .day-list { display: grid; gap: 14px; }
-.day-card { display: grid; grid-template-columns: 150px 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
-.day-date { padding: 22px; background: var(--surface-soft); }
+.day-card { overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.day-date { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 22px; background: var(--surface-soft); }
 .day-date span, .day-date b { display: block; }
 .day-date span { font-family: "Noto Serif TC", serif; font-size: 20px; font-weight: 700; }
-.day-date b { margin-top: 5px; color: var(--muted); font-size: 12px; }
+.day-date b { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
 .day-items { padding: 4px 22px; }
 .timeline-item { display: grid; grid-template-columns: 70px minmax(220px, 1fr) minmax(180px, .7fr); gap: 18px; padding: 20px 0; border-bottom: 1px solid var(--line); }
 .timeline-item:last-child { border-bottom: 0; }
@@ -175,7 +181,7 @@ dialog::backdrop { background: rgba(24, 30, 27, .48); backdrop-filter: blur(4px)
 .modal-shell { display: flex; flex-direction: column; max-height: calc(100vh - 32px); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 22px 26px; border-bottom: 1px solid var(--line); }
 .modal-head h2 { margin: 0; font-size: 21px; }
-.modal-body { overflow-y: auto; padding: 26px; }
+.modal-body { overflow-x: hidden; overflow-y: auto; padding: 26px; }
 .modal-foot { display: flex; justify-content: space-between; gap: 10px; padding: 18px 26px; border-top: 1px solid var(--line); background: var(--surface); }
 .modal-foot-right { display: flex; gap: 8px; margin-left: auto; }
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
@@ -235,6 +241,7 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .time-editor-body { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(200px, .7fr); gap: 12px; min-width: 0; padding: 14px; }
 .time-main { display: grid; grid-template-columns: 120px 1fr; gap: 10px; }
 .time-main > *, .time-editor-body > * { min-width: 0; }
+.time-main input, .time-main textarea { width: 100%; min-width: 0; max-width: 100%; }
 .time-main label:nth-child(n+2) { grid-column: 1 / -1; }
 .time-main textarea { min-height: 74px; }
 .time-note { grid-template-rows: auto 1fr; height: 100%; }
@@ -313,24 +320,41 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
   .trip-route { text-align: left; }
   .trip-actions { grid-column: 1; justify-content: flex-end; padding: 0 14px 14px; }
   .cover-strip { height: 190px; }
-  .detail-grid, .form-grid { grid-template-columns: 1fr; }
+  .form-grid { grid-template-columns: 1fr; }
+  .trip-hero .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
+  .trip-hero .detail-grid > div { min-width: 0; }
+  .trip-hero .detail-grid b { display: block; overflow-wrap: anywhere; }
   label.full { grid-column: auto; }
   .data-row, .data-row.expense-row { grid-template-columns: 90px 1fr; gap: 8px 16px; }
   .data-row.header { display: none; }
   .data-row > span:nth-child(n+3) { grid-column: 2; }
+  .expense-display-head, .expense-display-row { grid-template-columns: 1fr; gap: 10px; padding: 14px 16px; }
+  .expense-display-head > span { display: none; }
+  .expense-display-head { padding-block: 10px; }
+  .expense-numbers-head, .expense-numbers { grid-template-columns: minmax(0, 1.55fr) minmax(44px, .5fr) minmax(50px, .6fr); gap: 8px; }
+  .expense-numbers-head span { font-size: 11px; }
+  .expense-display-row > strong { font-size: 15px; }
+  .expense-note { padding-top: 8px; border-top: 1px dashed var(--line); font-size: 13px; }
+  .total { flex-direction: column; align-items: flex-end; gap: 4px; }
   .modal-head, .modal-body, .modal-foot { padding-left: 18px; padding-right: 18px; }
   dialog, dialog.modal-wide { width: calc(100vw - 16px); max-height: calc(100vh - 16px); border-radius: 18px; }
   .modal-shell { max-height: calc(100vh - 16px); }
-  .form-grid > *, .day-editor > *, .time-editor > *, .entry > * { min-width: 0; }
+  #trip-form, .editor-panel, .form-grid, .day-editor, .time-editor, .time-editor-body, .time-main { width: 100%; min-width: 0; max-width: 100%; }
+  .form-grid > *, .day-editor > *, .time-editor > *, .entry > * { min-width: 0; max-width: 100%; }
+  #trip-form input:not([type="checkbox"]):not([type="radio"]), #trip-form select, #trip-form textarea { width: 100%; min-width: 0; max-width: 100%; }
+  #trip-form input[type="datetime-local"], #trip-form input[type="time"] { display: block; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; font-size: 16px; }
   .expense-entry { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .expense-entry label > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; }
   .expense-more { grid-template-columns: 1fr; }
   .expense-more-toggle { grid-column: 1; white-space: normal; }
   .expense-remove { grid-column: 2; grid-row: auto; }
-  .day-card { grid-template-columns: 1fr; }
   .day-date { padding: 16px 18px; }
   .timeline-item { grid-template-columns: 52px 1fr; gap: 10px; }
   .checklist-view, .check-items, .settings-grid { grid-template-columns: 1fr; }
+  .checklist-view article { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 16px; }
+  .checklist-view h3 { grid-column: 1 / -1; margin-bottom: 3px; }
+  .checklist-view .read-check { min-width: 0; margin-top: 0; align-items: start; }
+  .checklist-view .read-check span { min-width: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
   #notes .section-head { margin-bottom: 16px; }
   .notes-copy { display: none; }
   #notes .note-grid { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; margin-right: -12px; padding-right: 12px; scrollbar-width: none; }
@@ -345,8 +369,8 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
   .template-row { grid-template-columns: 1fr auto; }
   .template-row label:nth-child(2) { grid-column: 1; }
   .template-row .icon-button { grid-column: 2; grid-row: 1; }
-  .editor-tabs { overflow-x: auto; margin-inline: -18px; padding-inline: 18px; }
-  .editor-tabs button { flex: 1 0 auto; padding-inline: 10px; font-size: 12px; }
+  .editor-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; margin-inline: -18px; padding-inline: 18px; }
+  .editor-tabs button { min-width: 0; padding: 8px 5px; font-size: 11px; line-height: 1.35; white-space: normal; }
   .time-editor-head { align-items: flex-start; flex-wrap: wrap; }
   .time-editor-head .time-summary { flex-basis: 100%; }
   .time-editor-head .time-tools { width: 100%; justify-content: flex-end; }
