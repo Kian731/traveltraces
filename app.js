@@ -6,6 +6,7 @@ const toastElement = document.querySelector('#toast');
 
 const STORAGE_KEY = 'travelBookV3';
 const PREVIOUS_KEYS = ['travelBookV2', 'travelBook'];
+const HOME_HERO_IMAGE = 'https://images.unsplash.com/photo-1595789412965-8a2d37e7cfe5?auto=format&fit=crop&w=1800&q=85';
 const clone = value => JSON.parse(JSON.stringify(value));
 
 const defaultNotes = [
@@ -164,12 +165,12 @@ function renderHome() {
   const visitedCountries = Object.entries(data.settings.countries).filter(([name]) => data.trips.some(trip => trip.country === name));
   const nextCountdown = nearestTripCountdown(upcoming);
   const hero = countryOf('日本');
-  app.innerHTML = `<section class="hero" style="--hero-image:url('${hero.image}');--fallback:${hero.color}"><div class="hero-content"><p class="eyebrow">Personal travel archive</p><h1>把走過的地方，<br>好好收藏起來。</h1><p>從出發前的規劃，到旅途後的回憶，都放在同一個簡單、安靜的地方。</p><button class="button button-primary" data-action="new">規劃一趟新旅程</button></div></section>
+  app.innerHTML = `<section class="hero" style="--hero-image:url('${HOME_HERO_IMAGE}');--fallback:${hero.color}"><div class="hero-content"><p class="eyebrow">Personal travel archive</p><h1>把走過的地方，<br>好好收藏起來。</h1><p>從出發前的規劃，到旅途後的回憶，都放在同一個簡單、安靜的地方。</p><button class="button button-primary" data-action="new">規劃一趟新旅程</button></div></section>
   <div class="stats" aria-label="旅行統計"><div class="stats-scope"><span class="scope-mark" aria-hidden="true">🏅</span><div><button class="${homeStatsScope === 'all' ? 'active' : ''}" data-stats-scope="all">總和</button><button class="${homeStatsScope === 'year' ? 'active' : ''}" data-stats-scope="year">今年</button></div></div><div class="stat"><b>${countries}</b><span>個國家</span></div><div class="stat"><b>${cities}</b><span>個城市</span></div><div class="stat"><b>${totalDays}</b><span>個旅行日</span></div></div>
   <section class="section"><div class="section-head"><div><p class="eyebrow">Destinations</p><h2>目的地收藏</h2></div><div class="carousel-controls"><button class="icon-button" data-carousel="prev" aria-label="上一個目的地">←</button><button class="icon-button" data-carousel="next" aria-label="下一個目的地">→</button></div></div>
     <div class="country-carousel" id="country-carousel">${visitedCountries.map(([name, item]) => { const count = data.trips.filter(trip => trip.country === name).length; return `<button class="country-card" data-country="${escapeHtml(name)}" style="--image:url('${item.image}');--fallback:${item.color}"><span class="country-emoji">${item.emoji}</span><span><strong>${escapeHtml(name)}</strong><br>${count} 趟旅程</span></button>`; }).join('') || emptyState('還沒有目的地收藏', '建立第一趟旅程後，目的地會出現在這裡。')}</div>
   </section>
-  <section class="section"><div class="section-head"><div><p class="eyebrow">Up next</p><h2>即將出發</h2></div>${nextCountdown ? `<div class="next-countdown ${nextCountdown.active ? 'active' : ''}"><span>${escapeHtml(nextCountdown.trip.title)}</span><b>${escapeHtml(nextCountdown.text)}</b></div>` : ''}</div><div class="trip-list">${upcoming.length ? upcoming.map(tripCard).join('') : emptyState('還沒有即將出發的旅程', '新增日期與目的地，開始慢慢期待。')}</div></section>
+  <section class="section"><div class="section-head"><div><p class="eyebrow">Up next</p><div class="next-title-row"><h2>即將出發</h2>${nextCountdown ? `<div class="next-countdown ${nextCountdown.active ? 'active' : ''}"><span>${escapeHtml(nextCountdown.trip.title)}</span><b>${escapeHtml(nextCountdown.text)}</b></div>` : ''}</div></div></div><div class="trip-list">${upcoming.length ? upcoming.map(tripCard).join('') : emptyState('還沒有即將出發的旅程', '新增日期與目的地，開始慢慢期待。')}</div></section>
   <section class="section" id="memories"><div class="section-head"><div><p class="eyebrow">Memories</p><h2>旅行回憶</h2></div></div><div class="trip-list">${past.length ? past.map(tripCard).join('') : emptyState('回憶正在累積', '完成的旅程會收藏在這裡。', false)}</div></section>
   <section class="section" id="notes"><div class="section-head"><div><p class="eyebrow">Travel notes</p><h2>旅行筆記</h2></div><p class="section-copy notes-copy">把每次出發都會用到的提醒，整理成自己的旅行清單。</p></div><div class="note-grid">${notesMarkup(data.notes)}</div></section>`;
 }
