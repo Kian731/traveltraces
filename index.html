@@ -44,6 +44,14 @@
     <div id="modal-content"></div>
   </dialog>
 
+  <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <div class="confirm-shell">
+      <div class="modal-head"><h2 id="confirm-title">確認刪除</h2><button class="icon-button" id="confirm-close" type="button" aria-label="關閉">×</button></div>
+      <div class="modal-body"><p id="confirm-message"></p><p class="confirm-warning">刪除後將無法復原。</p></div>
+      <div class="modal-foot"><div class="modal-foot-right"><button class="button button-ghost" id="confirm-cancel" type="button">取消</button><button class="button button-danger" id="confirm-delete" type="button">確定刪除</button></div></div>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="catalog.js"></script>
   <script src="app.js"></script>
