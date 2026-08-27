@@ -245,6 +245,8 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .entry .icon-button { align-self: center; color: var(--danger); }
 .append-button { width: 100%; margin-top: 10px; border: 1px dashed #c9ccc5; border-radius: var(--radius-sm); background: white; color: var(--accent); }
 .preserve-lines { white-space: pre-wrap; }
+.auto-link { color: var(--accent); font-weight: 600; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 42%, transparent); text-underline-offset: 3px; }
+.auto-link:hover { text-decoration-color: currentColor; }
 .field-label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
 .city-chips { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; width: 100%; min-width: 0; max-width: 100%; }
 .city-chip { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
