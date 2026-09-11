@@ -305,7 +305,9 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .drag-handle { display: grid; place-items: center; width: 28px; height: 38px; border: 0; border-radius: 8px; padding: 0; background: transparent; color: #929994; font-size: 18px; line-height: 1; cursor: grab; touch-action: none; }
 .drag-handle:hover { background: rgba(50, 94, 75, .08); color: var(--accent); }
 .drag-handle:active { cursor: grabbing; }
-.is-dragging { z-index: 2; opacity: .58; outline: 2px dashed var(--accent); outline-offset: 2px; }
+.is-drag-placeholder { opacity: .22; outline: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+.sort-ghost { position: fixed !important; z-index: 200; max-height: min(60vh, 460px); overflow: hidden; pointer-events: none; opacity: .96; border-radius: var(--radius-md); background: var(--surface); box-shadow: 0 22px 58px rgba(26, 38, 32, .24); transform: translate3d(var(--drag-x, 0), var(--drag-y, 0), 0) rotate(.7deg) scale(1.015); will-change: transform; }
+.sort-ghost .drag-handle { color: var(--accent); }
 .sorting-active { cursor: grabbing; user-select: none; }
 
 .settings-intro { max-width: 720px; }
@@ -313,6 +315,10 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .settings-card { padding: 24px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
 .settings-card h2 { margin-bottom: 5px; font-size: 20px; }
 .settings-card > p, .settings-card-head p { margin-bottom: 18px; color: var(--muted); font-size: 14px; }
+.connection-state { flex: none; padding: 7px 11px; border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 12px; font-weight: 700; }
+.connection-state.is-ready { background: color-mix(in srgb, var(--accent) 12%, white); color: var(--accent); }
+.share-settings-row { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; gap: 10px; align-items: end; }
+.share-settings-row label { min-width: 0; }
 .settings-wide { grid-column: 1 / -1; }
 .settings-card-head { display: flex; justify-content: space-between; gap: 18px; align-items: start; }
 .form-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
@@ -455,6 +461,8 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
   .settings-card { padding: 16px; }
   .note-settings-row { grid-template-columns: 1fr; padding: 14px; }
   .settings-card-head, .panel-intro { align-items: stretch; flex-direction: column; }
+  .share-settings-row { grid-template-columns: 1fr; }
+  .share-settings-row .button { width: 100%; }
   .day-summary { padding: 13px 14px; }
   .day-summary strong { font-size: 18px; }
   .day-editor-body { padding: 0 10px 10px; }

@@ -10,6 +10,9 @@ const DEFAULT_DOCUMENT_TITLE = document.title;
 
 const STORAGE_KEY = 'travelBookV3';
 const PREVIOUS_KEYS = ['travelBookV2', 'travelBook'];
+const SHARE_KEY_STORAGE = 'travelShareWriteKey';
+const SHARE_API_URL = 'https://travel-share-api.ryankian7.workers.dev';
+const PUBLIC_SITE_URL = 'https://kian731.github.io/traveltraces/';
 const HOME_HERO_IMAGE = 'https://images.unsplash.com/photo-1595789412965-8a2d37e7cfe5?auto=format&fit=crop&w=1800&q=85';
 const DEFAULT_THEME = { accent: '#325e4b', warm: '#c66e45', background: '#f6f6f2' };
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -249,6 +252,7 @@ function renderSettings(selectedCountry = Object.keys(data.settings.countries)[0
   const country = countryOf(selectedCountry); const airlineCodes = [...new Set([...data.settings.originAirports.map(airportCode), ...Object.keys(data.settings.airlinesByAirport)])].filter(Boolean).sort();
   app.innerHTML = `${pageBack()}<section class="page-intro settings-intro"><p class="eyebrow">Website settings</p><h1>網站設定</h1><p class="section-copy">管理建立旅程時使用的國家、城市、機場、航空公司與準備清單。所有變更只儲存在這個瀏覽器。</p></section>
   <section class="settings-grid">
+    <article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>線上唯讀分享</h2><p>密碼只保存在這個裝置，用來建立或撤銷短連結，不會包含在備份或上傳到 GitHub。</p></div><span class="connection-state ${localStorage.getItem(SHARE_KEY_STORAGE) ? 'is-ready' : ''}">${localStorage.getItem(SHARE_KEY_STORAGE) ? '已儲存密碼' : '尚未設定'}</span></div><form id="share-settings"><div class="share-settings-row"><label>線上分享密碼<input name="shareKey" type="password" autocomplete="new-password" placeholder="${localStorage.getItem(SHARE_KEY_STORAGE) ? '輸入新密碼可更新' : '輸入 Cloudflare SHARE_WRITE_KEY'}"></label><button class="button button-primary" type="submit">儲存並測試</button><button class="button button-ghost" type="button" data-clear-share-key ${localStorage.getItem(SHARE_KEY_STORAGE) ? '' : 'disabled'}>清除此裝置密碼</button></div><p class="helper">忘記密碼時，可在 Cloudflare 重新設定 SHARE_WRITE_KEY，再回到這裡輸入新密碼。</p></form></article>
     <article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>網站配色</h2><p>調整全站主色、點綴色與頁面背景，儲存後會套用到所有頁面。</p></div></div><form id="theme-settings"><div class="theme-fields"><label>主色<input name="accent" type="color" value="${escapeHtml(data.settings.theme.accent)}"></label><label>點綴色<input name="warm" type="color" value="${escapeHtml(data.settings.theme.warm)}"></label><label>頁面背景<input name="background" type="color" value="${escapeHtml(data.settings.theme.background)}"></label></div><div class="form-actions theme-actions"><button class="button button-ghost" type="button" data-reset-theme>恢復預設</button><button class="button button-primary">儲存配色</button></div></form></article>
     <article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>國家與目的地</h2><p>選擇現有國家編輯，或建立新的國家選項。</p></div><button class="button button-soft" data-action="add-country">＋ 新增國家</button></div><label>編輯國家<select id="settings-country">${Object.keys(data.settings.countries).map(name => `<option ${name === selectedCountry ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></label><form id="country-settings" class="form-grid" style="margin-top:18px"><input type="hidden" name="original" value="${escapeHtml(selectedCountry)}">${formField('name', '國家名稱', selectedCountry, 'text', 'required')}${formField('emoji', '代表圖示', country.emoji)}${formField('image', '封面圖片網址', country.image, 'url')}${formField('color', '備援色彩', country.color, 'color')}<label class="full">城市（每行一個）<textarea name="cities">${escapeHtml(country.cities.join('\n'))}</textarea></label><label class="full">目的地機場（每行一個，格式：代碼｜名稱）<textarea name="airports">${escapeHtml(country.airports.join('\n'))}</textarea></label><div class="full form-actions"><button class="button button-primary">儲存國家設定</button></div></form></article>
     <article class="settings-card"><h2>出發機場</h2><p>用於旅程的出發地搜尋選單。</p><form id="origin-settings"><label>機場（每行一個）<textarea name="origins" class="tall-textarea">${escapeHtml(data.settings.originAirports.join('\n'))}</textarea></label><div class="form-actions"><button class="button button-primary">儲存出發機場</button></div></form></article>
@@ -340,14 +344,22 @@ function enablePointerSort(container, itemSelector, handleSelector) {
   container.addEventListener('pointerdown', event => {
     const handle = event.target.closest(handleSelector); if (!handle || !container.contains(handle)) return;
     const dragged = handle.closest(itemSelector); if (!dragged || dragged.parentElement !== container) return;
-    event.preventDefault(); handle.setPointerCapture?.(event.pointerId); dragged.classList.add('is-dragging'); document.body.classList.add('sorting-active');
-    const move = pointerEvent => {
-      pointerEvent.preventDefault(); const candidate = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)?.closest(itemSelector);
+    event.preventDefault(); const startRect = dragged.getBoundingClientRect(); const offsetX = event.clientX - startRect.left; const offsetY = event.clientY - startRect.top; const ghost = dragged.cloneNode(true);
+    [...dragged.querySelectorAll('input, textarea')].forEach((field, index) => { const copy = ghost.querySelectorAll('input, textarea')[index]; if (copy) { copy.value = field.value; copy.checked = field.checked; } });
+    ghost.classList.add('sort-ghost'); ghost.setAttribute('aria-hidden', 'true'); ghost.style.width = `${startRect.width}px`; ghost.style.height = `${startRect.height}px`; ghost.style.left = `${startRect.left}px`; ghost.style.top = `${startRect.top}px`; document.body.append(ghost);
+    handle.setPointerCapture?.(event.pointerId); dragged.classList.add('is-drag-placeholder'); document.body.classList.add('sorting-active');
+    const placeGhost = pointerEvent => { const maxLeft = Math.max(8, window.innerWidth - startRect.width - 8); const left = Math.max(8, Math.min(maxLeft, pointerEvent.clientX - offsetX)); const top = Math.max(8, Math.min(window.innerHeight - 48, pointerEvent.clientY - offsetY)); ghost.style.setProperty('--drag-x', `${left - startRect.left}px`); ghost.style.setProperty('--drag-y', `${top - startRect.top}px`); };
+    placeGhost(event); let animationFrame = 0; let latestPointer = event;
+    const updatePosition = pointerEvent => {
+      placeGhost(pointerEvent); const scrollArea = container.closest('.modal-body'); if (scrollArea) { const bounds = scrollArea.getBoundingClientRect(); if (pointerEvent.clientY < bounds.top + 72) scrollArea.scrollBy({ top: -12 }); else if (pointerEvent.clientY > bounds.bottom - 72) scrollArea.scrollBy({ top: 12 }); }
+      const candidate = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)?.closest(itemSelector);
       if (!candidate || candidate === dragged || candidate.parentElement !== container) return;
-      const rect = candidate.getBoundingClientRect(); const sameRow = pointerEvent.clientY >= rect.top && pointerEvent.clientY <= rect.bottom; const before = sameRow ? pointerEvent.clientX < rect.left + rect.width / 2 : pointerEvent.clientY < rect.top + rect.height / 2;
+      const siblings = [...container.querySelectorAll(`:scope > ${itemSelector}`)]; const positions = new Map(siblings.map(item => [item, item.getBoundingClientRect()])); const rect = candidate.getBoundingClientRect(); const hasGridRows = siblings.some((item, index) => index && Math.abs(item.getBoundingClientRect().top - siblings[index - 1].getBoundingClientRect().top) < 8); const before = hasGridRows && pointerEvent.clientY >= rect.top && pointerEvent.clientY <= rect.bottom ? pointerEvent.clientX < rect.left + rect.width / 2 : pointerEvent.clientY < rect.top + rect.height / 2;
       container.insertBefore(dragged, before ? candidate : candidate.nextSibling);
+      siblings.forEach(item => { if (item === dragged) return; const previous = positions.get(item); const current = item.getBoundingClientRect(); const x = previous.left - current.left; const y = previous.top - current.top; if (x || y) item.animate([{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }], { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' }); });
     };
-    const end = () => { dragged.classList.remove('is-dragging'); document.body.classList.remove('sorting-active'); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); };
+    const move = pointerEvent => { pointerEvent.preventDefault(); latestPointer = pointerEvent; if (!animationFrame) animationFrame = requestAnimationFrame(() => { animationFrame = 0; updatePosition(latestPointer); }); };
+    const end = () => { if (animationFrame) cancelAnimationFrame(animationFrame); const endRect = dragged.getBoundingClientRect(); const ghostRect = ghost.getBoundingClientRect(); dragged.classList.remove('is-drag-placeholder'); dragged.animate([{ transform: `translate(${ghostRect.left - endRect.left}px, ${ghostRect.top - endRect.top}px)`, opacity: .72 }, { transform: 'translate(0, 0)', opacity: 1 }], { duration: 190, easing: 'cubic-bezier(.2,.8,.2,1)' }); ghost.remove(); document.body.classList.remove('sorting-active'); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); };
     window.addEventListener('pointermove', move, { passive: false }); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
   });
 }
@@ -432,6 +444,13 @@ function openNote(country, index, editing = false) {
 function addCountry() { const name = prompt('新國家的名稱'); if (!name?.trim()) return; const clean = name.trim(); if (!data.settings.countries[clean]) data.settings.countries[clean] = { emoji: '🌍', color: '#4f665b', image: '', cities: [], airports: [] }; saveData(); renderSettings(clean); showToast(`${clean} 已加入國家選單`); }
 
 function bindSettingsSubmit(form) {
+  if (form.id === 'share-settings') {
+    const input = form.elements.shareKey; const key = input.value.trim();
+    if (!key) { alert('請輸入線上分享密碼。'); input.focus(); return; }
+    const submit = form.querySelector('[type="submit"]'); submit.disabled = true; submit.textContent = '連線測試中…';
+    verifyShareKey(key).then(() => { localStorage.setItem(SHARE_KEY_STORAGE, key); renderSettings(); showToast('分享密碼已儲存，連線正常'); }).catch(error => { alert(`無法儲存分享密碼：${error.message}`); submit.disabled = false; submit.textContent = '儲存並測試'; });
+    return;
+  }
   if (form.id === 'country-settings') { const values = Object.fromEntries(new FormData(form)); const original = values.original; const name = values.name.trim(); if (!name) return; const current = countryOf(original); const updated = { ...current, emoji: values.emoji || '🌍', image: values.image, color: values.color || '#4f665b', cities: lines(values.cities), airports: lines(values.airports) }; if (name !== original) delete data.settings.countries[original]; data.settings.countries[name] = updated; data.trips.forEach(trip => { if (trip.country === original) trip.country = name; }); saveData(); renderSettings(name); showToast('國家設定已儲存'); }
   if (form.id === 'origin-settings') { data.settings.originAirports = lines(new FormData(form).get('origins')); saveData(); renderSettings(); showToast('出發機場已儲存'); }
   if (form.id === 'airline-settings') { const code = document.querySelector('#airline-airport').value; data.settings.airlinesByAirport[code] = lines(new FormData(form).get('airlines')); saveData(); renderSettings(undefined, code); showToast('航空公司已儲存'); }
@@ -479,16 +498,57 @@ function shareableImage(value) {
   try { const url = new URL(String(value), location.href); return ['http:', 'https:'].includes(url.protocol) ? url.href : ''; } catch { return ''; }
 }
 
+async function shareApiRequest(path, options = {}) {
+  let response;
+  try { response = await fetch(`${SHARE_API_URL}${path}`, options); }
+  catch { throw new Error('無法連線至線上分享服務，請檢查網路後再試'); }
+  let result = {};
+  try { result = await response.json(); } catch { /* 使用下方的通用錯誤 */ }
+  if (!response.ok) throw new Error(result.error || `分享服務發生錯誤（${response.status}）`);
+  return result;
+}
+
+async function verifyShareKey(key) {
+  return shareApiRequest('/auth/check', { method: 'POST', headers: { 'X-Share-Key': key } });
+}
+
+async function createOnlineShare(trip, key) {
+  return shareApiRequest('/shares', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Share-Key': key },
+    body: JSON.stringify({ payload: createSharePayload(trip), expiresInDays: 30 })
+  });
+}
+
+async function loadOnlineShare(id) {
+  const result = await shareApiRequest(`/shares/${encodeURIComponent(id)}`);
+  return result.payload;
+}
+
 function createSharePayload(trip) {
-  const sharedTrip = clone(trip); sharedTrip.coverImage = shareableImage(sharedTrip.coverImage);
-  const destination = clone(countryOf(trip.country)); destination.image = shareableImage(destination.image); destination.color = normalizeHex(destination.color, '#4f665b');
-  return { version: 1, trip: sharedTrip, country: destination, theme: clone(data.settings.theme || DEFAULT_THEME) };
+  const destination = countryOf(trip.country); const theme = data.settings.theme || DEFAULT_THEME;
+  const packedTrip = [trip.id, trip.title, trip.country, trip.cities, trip.origin, trip.destination, shareableImage(trip.coverImage), trip.start, trip.end, trip.airline, trip.flight, trip.sameReturnAirline ? 1 : 0, trip.returnAirline, trip.returnFlight, trip.status, trip.people, trip.companions, trip.budget, trip.budgetCurrency,
+    trip.planDays.map(day => [day.date, day.items.map(item => [item.time, item.activity, item.transport, item.map, item.note])]),
+    trip.expenses.map(row => [row.item, row.price, row.quantity, row.split, row.note]),
+    trip.checklist.map(group => [group.category, group.items.map(item => [item.name, item.checked ? 1 : 0])])];
+  return { v: 2, t: packedTrip, c: [destination.emoji, normalizeHex(destination.color, '#4f665b'), shareableImage(destination.image)], h: [theme.accent, theme.warm, theme.background] };
+}
+
+function expandSharePayload(payload) {
+  if (payload?.v !== 2) return payload;
+  const t = payload.t; if (!Array.isArray(t) || !Array.isArray(payload.c) || !Array.isArray(payload.h)) throw new Error('分享資料格式不正確');
+  return { version: 1, trip: { id: t[0], title: t[1], country: t[2], cities: t[3], origin: t[4], destination: t[5], coverImage: t[6], start: t[7], end: t[8], airline: t[9], flight: t[10], sameReturnAirline: Boolean(t[11]), returnAirline: t[12], returnFlight: t[13], status: t[14], people: t[15], companions: t[16], budget: t[17], budgetCurrency: t[18],
+    planDays: (t[19] || []).map(day => ({ date: day[0], items: (day[1] || []).map(item => ({ time: item[0], activity: item[1], transport: item[2], map: item[3], note: item[4] })) })),
+    expenses: (t[20] || []).map(row => ({ item: row[0], price: row[1], quantity: row[2], split: row[3], note: row[4] })),
+    checklist: (t[21] || []).map(group => ({ category: group[0], items: (group[1] || []).map(item => ({ name: item[0], checked: Boolean(item[1]) })) })) },
+    country: { emoji: payload.c[0], color: payload.c[1], image: payload.c[2], cities: [], airports: [] }, theme: { accent: payload.h[0], warm: payload.h[1], background: payload.h[2] } };
 }
 
 async function renderSharedTrip(token) {
   app.innerHTML = '<section class="page-intro"><div class="empty"><h3>正在開啟唯讀旅程…</h3></div></section>';
   try {
-    const payload = await decodeSharePayload(token);
+    const storedPayload = token.startsWith('s_') ? await loadOnlineShare(token) : await decodeSharePayload(token);
+    const payload = expandSharePayload(storedPayload);
     if (decodeURIComponent(location.hash.slice(1)) !== `share/${token}`) return;
     if (payload?.version !== 1 || !payload.trip || typeof payload.trip !== 'object' || !payload.trip.country) throw new Error('分享資料格式不正確');
     const countryName = String(payload.trip.country); const sharedSettings = normalizeSettings({ countries: { [countryName]: payload.country || {} }, theme: payload.theme || DEFAULT_THEME });
@@ -502,7 +562,7 @@ async function renderSharedTrip(token) {
     app.querySelectorAll('.section').forEach(section => { if (section.querySelector('h2')?.textContent === '旅程準備清單') { const copy = section.querySelector('.section-copy'); if (copy) copy.textContent = `已完成 ${sharedTrip.checklist.flatMap(group => group.items).filter(item => item.checked).length}／${sharedTrip.checklist.flatMap(group => group.items).length} 項`; } });
     app.insertAdjacentHTML('afterbegin', '<div class="readonly-share-banner"><strong>唯讀旅程</strong><span>此頁僅供查看，內容無法編輯。</span></div>');
   } catch (error) {
-    document.body.classList.add('readonly-share'); app.innerHTML = `<section class="page-intro">${emptyState('無法開啟這份旅程', '連結可能不完整或已損壞，請分享者重新產生連結。', false)}</section>`;
+    document.body.classList.add('readonly-share'); app.innerHTML = `<section class="page-intro">${emptyState('無法開啟這份旅程', error.message || '連結可能不完整、已過期或已損壞。', false)}</section>`;
   }
 }
 
@@ -513,11 +573,13 @@ async function copyShareUrl(url) {
 async function shareReadonlyTrip(id) {
   const trip = data.trips.find(item => item.id === id); if (!trip) return;
   try {
-    const url = new URL(location.href); url.hash = `share/${await encodeSharePayload(createSharePayload(trip))}`;
-    const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-    if (!isLocal && navigator.share) { await navigator.share({ title: `${trip.title}｜唯讀旅程`, text: '查看這趟旅程的行程記錄', url: url.href }); showToast('唯讀連結已分享'); return; }
+    const key = localStorage.getItem(SHARE_KEY_STORAGE);
+    if (!key) { alert('請先到「網站設定」輸入線上分享密碼。'); location.hash = 'settings'; return; }
+    const result = await createOnlineShare(trip, key);
+    const url = new URL(PUBLIC_SITE_URL); url.hash = `share/${result.id}`;
+    if (navigator.share) { await navigator.share({ title: `${trip.title}｜唯讀旅程`, text: '查看這趟旅程的行程記錄', url: url.href }); showToast('唯讀連結已分享'); return; }
     await copyShareUrl(url.href);
-    if (isLocal) alert('唯讀連結已複製。目前網站使用本機網址，需先部署到線上，其他裝置才能開啟。'); else showToast('唯讀連結已複製');
+    showToast('短版唯讀連結已複製，有效期限 30 天');
   } catch (error) { if (error.name !== 'AbortError') alert(`無法分享旅程：${error.message}`); }
 }
 
@@ -550,6 +612,7 @@ app.addEventListener('click', event => {
   if (action === 'add-country') addCountry();
   if (action === 'add-template') { document.querySelector('#template-list').insertAdjacentHTML('beforeend', templateEditor()); }
   if (target.matches('[data-reset-theme]')) { data.settings.theme = clone(DEFAULT_THEME); saveData(); applyTheme(); renderSettings(); showToast('已恢復預設配色'); }
+  if (target.matches('[data-clear-share-key]')) { localStorage.removeItem(SHARE_KEY_STORAGE); renderSettings(); showToast('已清除此裝置的分享密碼'); }
   if (target.matches('[data-remove-template]')) { const row = target.closest('.template-row'); const name = row.querySelector('.template-category')?.value.trim() || '這個清單分類'; confirmDeletion(`確定要刪除「${name}」嗎？`, '刪除清單範本').then(confirmed => { if (confirmed) row.remove(); }); }
 });
 
