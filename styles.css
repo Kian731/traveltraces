@@ -319,6 +319,18 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .connection-state.is-ready { background: color-mix(in srgb, var(--accent) 12%, white); color: var(--accent); }
 .share-settings-row { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; gap: 10px; align-items: end; }
 .share-settings-row label { min-width: 0; }
+.share-record-list { display: grid; gap: 10px; }
+.share-record { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--soft); }
+.share-record strong { display: block; margin-bottom: 3px; }
+.share-record p { margin: 0; color: var(--muted); font-size: 13px; }
+.share-record.is-expired { opacity: .7; }
+.share-record-actions { display: flex; gap: 8px; flex: none; }
+.compact-empty { padding: 24px; }
+.admin-share-settings { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+.admin-share-settings summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 700; }
+.admin-share-settings[open] summary { margin-bottom: 10px; }
+.turnstile-prompt { display: grid; justify-items: center; gap: 16px; text-align: center; }
+.turnstile-prompt > p { margin: 0; }
 .settings-wide { grid-column: 1 / -1; }
 .settings-card-head { display: flex; justify-content: space-between; gap: 18px; align-items: start; }
 .form-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
@@ -463,6 +475,9 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
   .settings-card-head, .panel-intro { align-items: stretch; flex-direction: column; }
   .share-settings-row { grid-template-columns: 1fr; }
   .share-settings-row .button { width: 100%; }
+  .share-record { align-items: stretch; flex-direction: column; }
+  .share-record-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  .share-record-actions .button { min-width: 0; padding-inline: 8px; }
   .day-summary { padding: 13px 14px; }
   .day-summary strong { font-size: 18px; }
   .day-editor-body { padding: 0 10px 10px; }

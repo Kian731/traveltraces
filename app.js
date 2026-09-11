@@ -11,8 +11,10 @@ const DEFAULT_DOCUMENT_TITLE = document.title;
 const STORAGE_KEY = 'travelBookV3';
 const PREVIOUS_KEYS = ['travelBookV2', 'travelBook'];
 const SHARE_KEY_STORAGE = 'travelShareWriteKey';
+const SHARE_RECORDS_STORAGE = 'travelShareRecords';
 const SHARE_API_URL = 'https://travel-share-api.ryankian7.workers.dev';
 const PUBLIC_SITE_URL = 'https://kian731.github.io/traveltraces/';
+const TURNSTILE_SITE_KEY = '0x4AAAAAAEvwNDo21D2D_HK8';
 const HOME_HERO_IMAGE = 'https://images.unsplash.com/photo-1595789412965-8a2d37e7cfe5?auto=format&fit=crop&w=1800&q=85';
 const DEFAULT_THEME = { accent: '#325e4b', warm: '#c66e45', background: '#f6f6f2' };
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -248,11 +250,43 @@ function renderTrip(id) {
   <section class="section" id="trip-checklist"><div class="section-head"><div><p class="eyebrow">Checklist</p><h2>旅程準備清單</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="checklist">編輯</button></div><div class="check-progress"><span style="--progress:${checklistItems.length ? checked / checklistItems.length * 100 : 0}%"></span></div><p class="section-copy">已完成 ${checked}／${checklistItems.length} 項 · ${canQuickCheck ? '可直接勾選更新' : '旅程已結束，請由編輯旅程更新'}</p><div class="checklist-view ${canQuickCheck ? '' : 'locked'}">${trip.checklist.map((group, groupIndex) => `<article><h3>${escapeHtml(group.category)}</h3>${group.items.map((item, itemIndex) => `<label class="read-check"><input type="checkbox" data-quick-check data-trip-id="${escapeHtml(trip.id)}" data-group-index="${groupIndex}" data-item-index="${itemIndex}" ${item.checked ? 'checked' : ''} ${canQuickCheck ? '' : 'disabled'}><span>${escapeHtml(item.name)}</span></label>`).join('')}</article>`).join('')}</div></section>`;
 }
 
+function loadShareRecords() {
+  try {
+    const records = JSON.parse(localStorage.getItem(SHARE_RECORDS_STORAGE) || '[]');
+    return Array.isArray(records) ? records.filter(record => record?.id && record?.deleteToken) : [];
+  } catch { return []; }
+}
+
+function saveShareRecords(records) {
+  localStorage.setItem(SHARE_RECORDS_STORAGE, JSON.stringify(records.slice(0, 100)));
+}
+
+function onlineShareUrl(id) {
+  const url = new URL(PUBLIC_SITE_URL); url.hash = `share/${id}`; return url.href;
+}
+
+function shareExpiryText(expiresAt) {
+  const end = Number(expiresAt); if (!end) return '到期時間未知';
+  if (end <= Date.now()) return '已到期';
+  const remaining = end - Date.now(); const days = Math.floor(remaining / 86400000); const hours = Math.floor(remaining % 86400000 / 3600000);
+  return days ? `剩餘 ${days} 天 ${hours} 小時` : `剩餘 ${Math.max(1, hours)} 小時`;
+}
+
+function shareExpiryDate(expiresAt) {
+  return new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(Number(expiresAt)));
+}
+
+function shareSettingsCard() {
+  const records = loadShareRecords(); const hasAdminKey = Boolean(localStorage.getItem(SHARE_KEY_STORAGE));
+  const list = records.length ? records.map(record => { const expired = Number(record.expiresAt) <= Date.now(); return `<article class="share-record ${expired ? 'is-expired' : ''}"><div><strong>${escapeHtml(record.title || '未命名旅程')}</strong><p>${escapeHtml(shareExpiryText(record.expiresAt))} · ${escapeHtml(shareExpiryDate(record.expiresAt))}</p></div><div class="share-record-actions"><button class="button button-soft" type="button" data-copy-share="${escapeHtml(record.id)}">複製連結</button><a class="button button-ghost" href="${escapeHtml(onlineShareUrl(record.id))}" target="_blank" rel="noopener">開啟</a><button class="button button-danger" type="button" data-revoke-share="${escapeHtml(record.id)}">${expired ? '移除紀錄' : '撤銷'}</button></div></article>`; }).join('') : '<div class="empty compact-empty"><h3>目前沒有分享紀錄</h3><p>從旅程內頁建立唯讀分享後，可以在這裡複製或撤銷。</p></div>';
+  return `<article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>線上唯讀分享</h2><p>任何人都能透過人機驗證建立短連結。每條連結保留 30 天，建立者可在這個裝置撤銷自己的分享。</p></div><span class="connection-state is-ready">公開分享模式</span></div><div class="share-record-list">${list}</div><details class="admin-share-settings"><summary>網站管理者工具</summary><p class="helper">一般使用者不需要輸入。網站管理者密碼可用於連線檢查及未來的進階管理。</p><form id="share-settings"><div class="share-settings-row"><label>管理者密碼<input name="shareKey" type="password" autocomplete="new-password" placeholder="${hasAdminKey ? '輸入新密碼可更新' : '輸入 Cloudflare SHARE_WRITE_KEY'}"></label><button class="button button-primary" type="submit">儲存並測試</button><button class="button button-ghost" type="button" data-clear-share-key ${hasAdminKey ? '' : 'disabled'}>清除此裝置密碼</button></div></form></details></article>`;
+}
+
 function renderSettings(selectedCountry = Object.keys(data.settings.countries)[0], selectedAirport = airportCode(data.settings.originAirports[0])) {
   const country = countryOf(selectedCountry); const airlineCodes = [...new Set([...data.settings.originAirports.map(airportCode), ...Object.keys(data.settings.airlinesByAirport)])].filter(Boolean).sort();
   app.innerHTML = `${pageBack()}<section class="page-intro settings-intro"><p class="eyebrow">Website settings</p><h1>網站設定</h1><p class="section-copy">管理建立旅程時使用的國家、城市、機場、航空公司與準備清單。所有變更只儲存在這個瀏覽器。</p></section>
   <section class="settings-grid">
-    <article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>線上唯讀分享</h2><p>密碼只保存在這個裝置，用來建立或撤銷短連結，不會包含在備份或上傳到 GitHub。</p></div><span class="connection-state ${localStorage.getItem(SHARE_KEY_STORAGE) ? 'is-ready' : ''}">${localStorage.getItem(SHARE_KEY_STORAGE) ? '已儲存密碼' : '尚未設定'}</span></div><form id="share-settings"><div class="share-settings-row"><label>線上分享密碼<input name="shareKey" type="password" autocomplete="new-password" placeholder="${localStorage.getItem(SHARE_KEY_STORAGE) ? '輸入新密碼可更新' : '輸入 Cloudflare SHARE_WRITE_KEY'}"></label><button class="button button-primary" type="submit">儲存並測試</button><button class="button button-ghost" type="button" data-clear-share-key ${localStorage.getItem(SHARE_KEY_STORAGE) ? '' : 'disabled'}>清除此裝置密碼</button></div><p class="helper">忘記密碼時，可在 Cloudflare 重新設定 SHARE_WRITE_KEY，再回到這裡輸入新密碼。</p></form></article>
+    ${shareSettingsCard()}
     <article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>網站配色</h2><p>調整全站主色、點綴色與頁面背景，儲存後會套用到所有頁面。</p></div></div><form id="theme-settings"><div class="theme-fields"><label>主色<input name="accent" type="color" value="${escapeHtml(data.settings.theme.accent)}"></label><label>點綴色<input name="warm" type="color" value="${escapeHtml(data.settings.theme.warm)}"></label><label>頁面背景<input name="background" type="color" value="${escapeHtml(data.settings.theme.background)}"></label></div><div class="form-actions theme-actions"><button class="button button-ghost" type="button" data-reset-theme>恢復預設</button><button class="button button-primary">儲存配色</button></div></form></article>
     <article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>國家與目的地</h2><p>選擇現有國家編輯，或建立新的國家選項。</p></div><button class="button button-soft" data-action="add-country">＋ 新增國家</button></div><label>編輯國家<select id="settings-country">${Object.keys(data.settings.countries).map(name => `<option ${name === selectedCountry ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></label><form id="country-settings" class="form-grid" style="margin-top:18px"><input type="hidden" name="original" value="${escapeHtml(selectedCountry)}">${formField('name', '國家名稱', selectedCountry, 'text', 'required')}${formField('emoji', '代表圖示', country.emoji)}${formField('image', '封面圖片網址', country.image, 'url')}${formField('color', '備援色彩', country.color, 'color')}<label class="full">城市（每行一個）<textarea name="cities">${escapeHtml(country.cities.join('\n'))}</textarea></label><label class="full">目的地機場（每行一個，格式：代碼｜名稱）<textarea name="airports">${escapeHtml(country.airports.join('\n'))}</textarea></label><div class="full form-actions"><button class="button button-primary">儲存國家設定</button></div></form></article>
     <article class="settings-card"><h2>出發機場</h2><p>用於旅程的出發地搜尋選單。</p><form id="origin-settings"><label>機場（每行一個）<textarea name="origins" class="tall-textarea">${escapeHtml(data.settings.originAirports.join('\n'))}</textarea></label><div class="form-actions"><button class="button button-primary">儲存出發機場</button></div></form></article>
@@ -498,6 +532,37 @@ function shareableImage(value) {
   try { const url = new URL(String(value), location.href); return ['http:', 'https:'].includes(url.protocol) ? url.href : ''; } catch { return ''; }
 }
 
+let turnstileLoader;
+function loadTurnstile() {
+  if (window.turnstile) return Promise.resolve(window.turnstile);
+  if (turnstileLoader) return turnstileLoader;
+  turnstileLoader = new Promise((resolve, reject) => {
+    const script = document.createElement('script'); script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; script.async = true; script.defer = true;
+    script.onload = () => window.turnstile ? resolve(window.turnstile) : reject(new Error('無法載入人機驗證'));
+    script.onerror = () => reject(new Error('無法載入人機驗證，請檢查網路或內容阻擋設定'));
+    document.head.append(script);
+  });
+  return turnstileLoader;
+}
+
+async function requestTurnstileToken() {
+  if (TURNSTILE_SITE_KEY.startsWith('__')) throw new Error('公開分享尚未完成 Turnstile 設定');
+  const turnstile = await loadTurnstile();
+  return new Promise((resolve, reject) => {
+    let settled = false; let widgetId;
+    const finish = (error, token) => {
+      if (settled) return; settled = true;
+      if (widgetId !== undefined) turnstile.remove(widgetId);
+      modal.close(); error ? reject(error) : resolve(token);
+    };
+    modalFrame('建立唯讀分享', '<div class="turnstile-prompt"><p>完成快速驗證後，系統會建立有效 30 天的唯讀連結。</p><div id="share-turnstile"></div><p class="helper">建立後可在「網站設定」查看到期時間或提前撤銷。</p></div>', '<div class="modal-foot"><div class="modal-foot-right"><button class="button button-ghost" type="button" data-cancel-share>取消</button></div></div>');
+    modalContent.querySelectorAll('[data-close], [data-cancel-share]').forEach(button => button.addEventListener('click', () => finish(new DOMException('已取消分享', 'AbortError'))));
+    try {
+      widgetId = turnstile.render('#share-turnstile', { sitekey: TURNSTILE_SITE_KEY, action: 'create_share', theme: 'auto', appearance: 'interaction-only', callback: token => finish(null, token), 'error-callback': () => finish(new Error('人機驗證載入失敗，請重新嘗試')) });
+    } catch (error) { finish(error); }
+  });
+}
+
 async function shareApiRequest(path, options = {}) {
   let response;
   try { response = await fetch(`${SHARE_API_URL}${path}`, options); }
@@ -512,17 +577,32 @@ async function verifyShareKey(key) {
   return shareApiRequest('/auth/check', { method: 'POST', headers: { 'X-Share-Key': key } });
 }
 
-async function createOnlineShare(trip, key) {
+async function createOnlineShare(trip, turnstileToken) {
   return shareApiRequest('/shares', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Share-Key': key },
-    body: JSON.stringify({ payload: createSharePayload(trip), expiresInDays: 30 })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payload: createSharePayload(trip), turnstileToken, expiresInDays: 30 })
   });
 }
 
 async function loadOnlineShare(id) {
-  const result = await shareApiRequest(`/shares/${encodeURIComponent(id)}`);
-  return result.payload;
+  return shareApiRequest(`/shares/${encodeURIComponent(id)}`);
+}
+
+function rememberShare(trip, result) {
+  const records = loadShareRecords().filter(record => record.id !== result.id);
+  records.unshift({ id: result.id, title: trip.title, expiresAt: result.expiresAt, deleteToken: result.deleteToken, createdAt: Date.now() });
+  saveShareRecords(records);
+}
+
+async function revokeShare(id) {
+  const records = loadShareRecords(); const record = records.find(item => item.id === id); if (!record) return;
+  if (Number(record.expiresAt) <= Date.now()) { saveShareRecords(records.filter(item => item.id !== id)); renderSettings(); showToast('已移除本機的過期紀錄'); return; }
+  if (!await confirmDeletion(`確定要撤銷「${record.title || '這份旅程'}」的唯讀連結嗎？撤銷後，收到連結的人將無法再開啟。`, '撤銷分享連結')) return;
+  try {
+    await shareApiRequest(`/shares/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'X-Delete-Token': record.deleteToken } });
+    saveShareRecords(records.filter(item => item.id !== id)); renderSettings(); showToast('唯讀連結已撤銷');
+  } catch (error) { alert(`無法撤銷分享：${error.message}`); }
 }
 
 function createSharePayload(trip) {
@@ -547,7 +627,8 @@ function expandSharePayload(payload) {
 async function renderSharedTrip(token) {
   app.innerHTML = '<section class="page-intro"><div class="empty"><h3>正在開啟唯讀旅程…</h3></div></section>';
   try {
-    const storedPayload = token.startsWith('s_') ? await loadOnlineShare(token) : await decodeSharePayload(token);
+    const onlineShare = token.startsWith('s_') ? await loadOnlineShare(token) : null;
+    const storedPayload = onlineShare ? onlineShare.payload : await decodeSharePayload(token);
     const payload = expandSharePayload(storedPayload);
     if (decodeURIComponent(location.hash.slice(1)) !== `share/${token}`) return;
     if (payload?.version !== 1 || !payload.trip || typeof payload.trip !== 'object' || !payload.trip.country) throw new Error('分享資料格式不正確');
@@ -560,7 +641,8 @@ async function renderSharedTrip(token) {
     app.querySelectorAll('button:not([data-toggle-trip-day]), .page-back, .trip-record-actions').forEach(element => element.remove());
     app.querySelectorAll('input').forEach(input => { input.disabled = true; input.removeAttribute('data-quick-check'); });
     app.querySelectorAll('.section').forEach(section => { if (section.querySelector('h2')?.textContent === '旅程準備清單') { const copy = section.querySelector('.section-copy'); if (copy) copy.textContent = `已完成 ${sharedTrip.checklist.flatMap(group => group.items).filter(item => item.checked).length}／${sharedTrip.checklist.flatMap(group => group.items).length} 項`; } });
-    app.insertAdjacentHTML('afterbegin', '<div class="readonly-share-banner"><strong>唯讀旅程</strong><span>此頁僅供查看，內容無法編輯。</span></div>');
+    const expiry = onlineShare?.expiresAt ? `此連結將於 ${shareExpiryDate(onlineShare.expiresAt)} 到期。` : '此頁僅供查看，內容無法編輯。';
+    app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner"><strong>唯讀旅程</strong><span>${escapeHtml(expiry)} 內容無法編輯。</span></div>`);
   } catch (error) {
     document.body.classList.add('readonly-share'); app.innerHTML = `<section class="page-intro">${emptyState('無法開啟這份旅程', error.message || '連結可能不完整、已過期或已損壞。', false)}</section>`;
   }
@@ -573,13 +655,15 @@ async function copyShareUrl(url) {
 async function shareReadonlyTrip(id) {
   const trip = data.trips.find(item => item.id === id); if (!trip) return;
   try {
-    const key = localStorage.getItem(SHARE_KEY_STORAGE);
-    if (!key) { alert('請先到「網站設定」輸入線上分享密碼。'); location.hash = 'settings'; return; }
-    const result = await createOnlineShare(trip, key);
-    const url = new URL(PUBLIC_SITE_URL); url.hash = `share/${result.id}`;
-    if (navigator.share) { await navigator.share({ title: `${trip.title}｜唯讀旅程`, text: '查看這趟旅程的行程記錄', url: url.href }); showToast('唯讀連結已分享'); return; }
+    const turnstileToken = await requestTurnstileToken();
+    const result = await createOnlineShare(trip, turnstileToken); rememberShare(trip, result);
+    const url = new URL(onlineShareUrl(result.id));
+    if (navigator.share) {
+      try { await navigator.share({ title: `${trip.title}｜唯讀旅程`, text: `查看這趟旅程的行程記錄（有效至 ${shareExpiryDate(result.expiresAt)}）`, url: url.href }); showToast(`唯讀連結已建立，有效至 ${shareExpiryDate(result.expiresAt)}`); return; }
+      catch (error) { if (error.name !== 'AbortError') throw error; }
+    }
     await copyShareUrl(url.href);
-    showToast('短版唯讀連結已複製，有效期限 30 天');
+    showToast(`短版連結已複製，有效至 ${shareExpiryDate(result.expiresAt)}`);
   } catch (error) { if (error.name !== 'AbortError') alert(`無法分享旅程：${error.message}`); }
 }
 
@@ -613,6 +697,8 @@ app.addEventListener('click', event => {
   if (action === 'add-template') { document.querySelector('#template-list').insertAdjacentHTML('beforeend', templateEditor()); }
   if (target.matches('[data-reset-theme]')) { data.settings.theme = clone(DEFAULT_THEME); saveData(); applyTheme(); renderSettings(); showToast('已恢復預設配色'); }
   if (target.matches('[data-clear-share-key]')) { localStorage.removeItem(SHARE_KEY_STORAGE); renderSettings(); showToast('已清除此裝置的分享密碼'); }
+  if (target.dataset.copyShare) { copyShareUrl(onlineShareUrl(target.dataset.copyShare)).then(() => showToast('唯讀連結已複製')); }
+  if (target.dataset.revokeShare) revokeShare(target.dataset.revokeShare);
   if (target.matches('[data-remove-template]')) { const row = target.closest('.template-row'); const name = row.querySelector('.template-category')?.value.trim() || '這個清單分類'; confirmDeletion(`確定要刪除「${name}」嗎？`, '刪除清單範本').then(confirmed => { if (confirmed) row.remove(); }); }
 });
 
