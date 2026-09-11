@@ -126,6 +126,7 @@ function loadData() {
 let data = loadData();
 let homeStatsScope = 'all';
 let activePlanDraft = [];
+let activeSharedImport = null;
 function shadeHex(hex, amount = -22) { const clean = String(hex || '').replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(clean)) return DEFAULT_THEME.accent; const value = Number.parseInt(clean, 16); const channel = shift => Math.max(0, Math.min(255, shift + amount)); return `#${[value >> 16, value >> 8 & 255, value & 255].map(channel => channel.toString(16).padStart(2, '0')).join('')}`; }
 function applyTheme(theme = data.settings.theme || DEFAULT_THEME) { const root = document.documentElement; root.style.setProperty('--accent', theme.accent || DEFAULT_THEME.accent); root.style.setProperty('--accent-hover', shadeHex(theme.accent || DEFAULT_THEME.accent)); root.style.setProperty('--warm', theme.warm || DEFAULT_THEME.warm); root.style.setProperty('--bg', theme.background || DEFAULT_THEME.background); }
 applyTheme();
@@ -301,7 +302,7 @@ function renderNotFound() { app.innerHTML = `${pageBack()}<section class="page-i
 
 function route() {
   const hash = decodeURIComponent(location.hash.slice(1) || 'home'); const [page, ...rest] = hash.split('/');
-  clearInterval(homeCountdownTimer); document.body.classList.remove('readonly-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
+  clearInterval(homeCountdownTimer); activeSharedImport = null; document.body.classList.remove('readonly-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
   if (page === 'home' || page === 'knowledge') renderHome(); else if (page === 'country' && rest[0]) renderCountry(rest[0]); else if (page === 'trip' && rest[0]) renderTrip(rest.join('/')); else if (page === 'share' && rest[0]) renderSharedTrip(rest.join('/')); else if (page === 'settings') renderSettings(); else renderNotFound();
   if (page === 'knowledge') requestAnimationFrame(() => document.querySelector('#notes')?.scrollIntoView()); else window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -635,6 +636,7 @@ async function renderSharedTrip(token) {
     const countryName = String(payload.trip.country); const sharedSettings = normalizeSettings({ countries: { [countryName]: payload.country || {} }, theme: payload.theme || DEFAULT_THEME });
     sharedSettings.countries[countryName].image = shareableImage(sharedSettings.countries[countryName].image); sharedSettings.countries[countryName].color = normalizeHex(sharedSettings.countries[countryName].color, '#4f665b');
     const sharedTrip = normalizeTrip(payload.trip, sharedSettings); sharedTrip.coverImage = shareableImage(sharedTrip.coverImage);
+    activeSharedImport = { trip: clone(sharedTrip), country: clone(sharedSettings.countries[countryName]) };
     const originalData = data;
     try { data = { version: 3, settings: sharedSettings, trips: [sharedTrip], countryNotes: {}, notes: [] }; renderTrip(sharedTrip.id); } finally { data = originalData; }
     document.body.classList.add('readonly-share'); document.title = `${sharedTrip.title}－唯讀旅程`; applyTheme(sharedSettings.theme);
@@ -642,10 +644,32 @@ async function renderSharedTrip(token) {
     app.querySelectorAll('input').forEach(input => { input.disabled = true; input.removeAttribute('data-quick-check'); });
     app.querySelectorAll('.section').forEach(section => { if (section.querySelector('h2')?.textContent === '旅程準備清單') { const copy = section.querySelector('.section-copy'); if (copy) copy.textContent = `已完成 ${sharedTrip.checklist.flatMap(group => group.items).filter(item => item.checked).length}／${sharedTrip.checklist.flatMap(group => group.items).length} 項`; } });
     const expiry = onlineShare?.expiresAt ? `此連結將於 ${shareExpiryDate(onlineShare.expiresAt)} 到期。` : '此頁僅供查看，內容無法編輯。';
-    app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner"><strong>唯讀旅程</strong><span>${escapeHtml(expiry)} 內容無法編輯。</span></div>`);
+    app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner"><div class="readonly-share-message"><strong>唯讀旅程</strong><span>${escapeHtml(expiry)} 內容無法編輯。</span></div><button class="button button-primary" type="button" data-action="import-shared-trip">加入我的旅程</button></div>`);
   } catch (error) {
     document.body.classList.add('readonly-share'); app.innerHTML = `<section class="page-intro">${emptyState('無法開啟這份旅程', error.message || '連結可能不完整、已過期或已損壞。', false)}</section>`;
   }
+}
+
+function openSharedImportConfirmation() {
+  if (!activeSharedImport?.trip) return;
+  const trip = activeSharedImport.trip;
+  modalFrame('加入我的旅程', `<div class="import-share-copy"><p>要將「${escapeHtml(trip.title)}」加入目前裝置的旅程嗎？</p><p class="helper">系統會建立一份獨立且可編輯的副本，之後的修改不會影響原分享者。</p></div>`, '<div class="modal-foot"><div class="modal-foot-right"><button class="button button-ghost" type="button" data-cancel-import>取消</button><button class="button button-primary" type="button" data-confirm-import>確認加入</button></div></div>');
+  modalContent.querySelector('[data-cancel-import]').addEventListener('click', () => modal.close());
+  modalContent.querySelector('[data-confirm-import]').addEventListener('click', importSharedTrip);
+}
+
+function importSharedTrip() {
+  if (!activeSharedImport?.trip) return;
+  const source = clone(activeSharedImport.trip); const countryName = source.country;
+  if (!data.settings.countries[countryName]) {
+    data.settings.countries[countryName] = { ...clone(activeSharedImport.country), cities: [...new Set(source.cities)], airports: activeSharedImport.country?.airports || [] };
+  } else {
+    data.settings.countries[countryName].cities = [...new Set([...data.settings.countries[countryName].cities, ...source.cities])];
+  }
+  source.id = crypto.randomUUID();
+  const imported = normalizeTrip(source, data.settings); data.trips.unshift(imported);
+  if (!saveData()) { data.trips.shift(); return; }
+  modal.close(); location.hash = `trip/${encodeURIComponent(imported.id)}`; route(); showToast('已加入我的旅程，可開始編輯');
 }
 
 async function copyShareUrl(url) {
@@ -687,6 +711,7 @@ app.addEventListener('click', event => {
   if (target.matches('[data-toggle-trip-day]')) { const card = target.closest('.day-card'); const items = card?.querySelector('.day-items'); if (!items) return; items.hidden = !items.hidden; card.classList.toggle('is-collapsed', items.hidden); target.setAttribute('aria-expanded', String(!items.hidden)); return; }
   if (target.dataset.scrollTarget) { document.querySelector(`#${target.dataset.scrollTarget}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   if (action === 'back') { if (history.length > 1) history.back(); else location.hash = 'home'; return; }
+  if (action === 'import-shared-trip') { openSharedImportConfirmation(); return; }
   if (action === 'new') openTripEditor('', country || ''); if (action === 'edit') openTripEditor(id, '', tab || 'overview');
   if (action === 'print-trip') exportTripPdf(id); if (action === 'share-trip') shareReadonlyTrip(id);
   if (target.matches('[data-country]:not([data-action]):not([data-city])')) location.hash = `country/${encodeURIComponent(country)}`; if (target.matches('[data-city]')) renderCountry(country, city);
