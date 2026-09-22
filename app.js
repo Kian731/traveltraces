@@ -17,6 +17,9 @@ const PUBLIC_SITE_URL = 'https://kian731.github.io/traveltraces/';
 const TURNSTILE_SITE_KEY = '0x4AAAAAAEvwNDo21D2D_HK8';
 const HOME_HERO_IMAGE = 'https://images.unsplash.com/photo-1595789412965-8a2d37e7cfe5?auto=format&fit=crop&w=1800&q=85';
 const DEFAULT_THEME = { accent: '#325e4b', warm: '#c66e45', background: '#f6f6f2' };
+const DOMESTIC_TRANSPORTS = ['國內航班', '客運', '火車', '高鐵', '捷運', '開車', '機車', '渡輪', '自行車', '其他'];
+const EXPENSE_CATEGORIES = ['住宿', '交通', '主食', '小吃', '零食', '飲料', '購物', '生活用品', '保健', '門票', '通訊', '其他'];
+const EXPENSE_COLORS = ['#325e4b', '#c66e45', '#d5a94e', '#718b78', '#6f84a5', '#a56f83', '#8d7654', '#7f799d', '#4d8f92', '#b17b54', '#8a9b58', '#8b8f8c'];
 const clone = value => JSON.parse(JSON.stringify(value));
 const normalizeHex = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value) : fallback;
 
@@ -33,7 +36,7 @@ const sampleTrip = {
     { date: '2026-10-04', items: [{ time: '14:30', activity: '抵達與飯店入住', transport: 'Skyliner', map: '', note: '傍晚在上野散步' }] },
     { date: '2026-10-05', items: [{ time: '09:00', activity: '明治神宮與表參道', transport: 'JR 山手線', map: '', note: '預留時間逛選物店' }, { time: '18:00', activity: '澀谷晚餐', transport: '步行', map: '', note: '可視體力調整' }] }
   ],
-  expenses: [{ item: '機票', price: '16800', quantity: '2', split: '2', note: '含托運行李' }, { item: '住宿', price: '12400', quantity: '1', split: '2', note: '5 晚' }]
+  expenses: [{ date: '2026-10-04', category: '交通', item: '機票', price: '16800', quantity: '2', split: '2', note: '含托運行李' }, { date: '2026-10-04', category: '住宿', item: '住宿', price: '12400', quantity: '1', split: '2', note: '5 晚' }]
 };
 
 function defaultChecklist(settings) {
@@ -88,8 +91,8 @@ function normalizePlan(trip) {
 }
 
 function normalizeExpenses(trip) {
-  if (Array.isArray(trip.expenses)) return trip.expenses.map(row => ({ item: String(row.item || ''), price: String(row.price || ''), quantity: String(row.quantity || '1'), split: String(row.split || ''), note: String(row.note || '') }));
-  return (Array.isArray(trip.cost) ? trip.cost : []).filter(Array.isArray).map(row => ({ item: String(row[0] || ''), price: String(row[1] || ''), quantity: String(row[2] || '1'), split: '', note: String(row[3] || '') }));
+  if (Array.isArray(trip.expenses)) return trip.expenses.map(row => ({ date: String(row.date || ''), category: String(row.category || '其他'), item: String(row.item || ''), price: String(row.price || ''), quantity: String(row.quantity || '1'), split: String(row.split || ''), note: String(row.note || '') }));
+  return (Array.isArray(trip.cost) ? trip.cost : []).filter(Array.isArray).map(row => ({ date: '', category: '其他', item: String(row[0] || ''), price: String(row[1] || ''), quantity: String(row[2] || '1'), split: '', note: String(row[3] || '') }));
 }
 
 function normalizeChecklist(raw, settings) {
@@ -100,6 +103,7 @@ function normalizeChecklist(raw, settings) {
 function normalizeTrip(trip = {}, settings = data?.settings || normalizeSettings()) {
   return {
     id: String(trip.id || crypto.randomUUID()), title: String(trip.title || '未命名旅程'), country: String(trip.country || '日本'),
+    travelScope: trip.travelScope === 'domestic' ? 'domestic' : 'international', domesticTransport: String(trip.domesticTransport || ''), transportDetail: String(trip.transportDetail || ''),
     cities: Array.isArray(trip.cities) ? trip.cities.map(String) : [], origin: String(trip.origin || ''), destination: String(trip.destination || ''),
     coverImage: String(trip.coverImage || ''),
     start: String(trip.start || ''), end: String(trip.end || ''), airline: String(trip.airline || ''), flight: String(trip.flight || ''),
@@ -126,6 +130,7 @@ function loadData() {
 let data = loadData();
 let homeStatsScope = 'all';
 let activePlanDraft = [];
+let activeExpenseDraft = [];
 let activeSharedImport = null;
 function shadeHex(hex, amount = -22) { const clean = String(hex || '').replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(clean)) return DEFAULT_THEME.accent; const value = Number.parseInt(clean, 16); const channel = shift => Math.max(0, Math.min(255, shift + amount)); return `#${[value >> 16, value >> 8 & 255, value & 255].map(channel => channel.toString(16).padStart(2, '0')).join('')}`; }
 function applyTheme(theme = data.settings.theme || DEFAULT_THEME) { const root = document.documentElement; root.style.setProperty('--accent', theme.accent || DEFAULT_THEME.accent); root.style.setProperty('--accent-hover', shadeHex(theme.accent || DEFAULT_THEME.accent)); root.style.setProperty('--warm', theme.warm || DEFAULT_THEME.warm); root.style.setProperty('--bg', theme.background || DEFAULT_THEME.background); }
@@ -239,16 +244,43 @@ function renderCountry(country, city = '') {
   <section class="section country-notes"><div class="section-head"><div><p class="eyebrow">Quick notes</p><h2>出發小筆記</h2></div></div><div class="note-grid">${countryNotes(country).map((note, index) => `<article class="note-card"><div class="topline"><h3>${escapeHtml(note[0])}</h3><button class="icon-button" data-action="edit-country-note" data-country="${escapeHtml(country)}" data-index="${index}" aria-label="編輯${escapeHtml(note[0])}">✎</button></div><p>${linkifyText(note[1])}</p><button class="text-button" data-action="read-country-note" data-country="${escapeHtml(country)}" data-index="${index}">閱讀更多 →</button></article>`).join('')}</div></section>`;
 }
 
+function expenseAmount(row) { return (Number(row.price) || 0) * (Number(row.quantity) || 1); }
+function tripMoney(trip, value) { return `${trip.budgetCurrency || 'TWD'} ${money(value)}`; }
+function expenseChartMarkup(trip, gross, personal) {
+  const totals = new Map();
+  trip.expenses.forEach(row => totals.set(row.category || '其他', (totals.get(row.category || '其他') || 0) + expenseAmount(row)));
+  const entries = [...totals.entries()].sort((a, b) => b[1] - a[1]); let cursor = 0;
+  const segments = entries.map(([, amount], index) => { const start = cursor; cursor += gross ? amount / gross * 100 : 0; return `${EXPENSE_COLORS[index % EXPENSE_COLORS.length]} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`; });
+  const chart = segments.length ? `conic-gradient(${segments.join(',')})` : 'conic-gradient(#e4e6e1 0 100%)';
+  const budget = Number(trip.budget) || 0; const balance = budget - gross;
+  return `<div class="expense-summary"><div class="expense-chart" style="--expense-chart:${chart}" role="img" aria-label="支出分類比例圓形圖"><div><strong>${escapeHtml(tripMoney(trip, gross))}</strong><span>總支出</span></div></div><div class="expense-legend">${entries.map(([category, amount], index) => `<div><i style="--legend-color:${EXPENSE_COLORS[index % EXPENSE_COLORS.length]}"></i><span>${escapeHtml(category)}</span><b>${escapeHtml(tripMoney(trip, amount))}</b><small>${gross ? Math.round(amount / gross * 100) : 0}%</small></div>`).join('')}</div><div class="expense-budget"><span>預算</span><strong>${budget ? escapeHtml(tripMoney(trip, budget)) : '尚未設定'}</strong>${budget ? `<small class="${balance < 0 ? 'over' : ''}">${balance < 0 ? `超出 ${escapeHtml(tripMoney(trip, Math.abs(balance)))}` : `剩餘 ${escapeHtml(tripMoney(trip, balance))}`}</small>` : ''}<span>個人實付</span><strong>${escapeHtml(tripMoney(trip, personal))}</strong></div></div>`;
+}
+
+function expenseListMarkup(trip) {
+  const sorted = [...trip.expenses].sort((a, b) => (a.date || '9999-99-99').localeCompare(b.date || '9999-99-99'));
+  const groups = new Map(); sorted.forEach(row => { const date = row.date || ''; if (!groups.has(date)) groups.set(date, []); groups.get(date).push(row); });
+  return [...groups].map(([date, rows]) => `<section class="expense-date-group"><h3>${date ? escapeHtml(formatDate(date, { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' })) : '日期未設定'}</h3><div class="table-card"><div class="expense-display-head"><span>分類／項目</span><div class="expense-numbers-head"><span>單價／個人實付</span><span>數量</span><span>平分</span></div><span>備註</span></div>${rows.map(row => `<div class="expense-display-row"><strong><small class="expense-category-badge">${escapeHtml(row.category || '其他')}</small>${escapeHtml(row.item)}</strong><div class="expense-numbers"><span>${escapeHtml(tripMoney(trip, row.price))}${Number(row.split) > 1 ? `<small>個人 ${escapeHtml(tripMoney(trip, personalExpense(row)))}</small>` : ''}</span><span>${escapeHtml(row.quantity)}</span><span>${Number(row.split) > 1 ? `${escapeHtml(row.split)} 人` : '—'}</span></div><span class="expense-note preserve-lines">${linkifyText(row.note || '—')}</span></div>`).join('')}</div></section>`).join('');
+}
+
+function switchTripContentTab(tab) {
+  const available = [...app.querySelectorAll('[data-trip-tab]')]; if (!available.some(button => button.dataset.tripTab === tab)) return;
+  available.forEach(button => { const active = button.dataset.tripTab === tab; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
+  app.querySelectorAll('[data-trip-panel]').forEach(panel => { panel.hidden = panel.dataset.tripPanel !== tab; });
+}
+
 function renderTrip(id) {
   const trip = data.trips.find(item => item.id === id); if (!trip) return renderNotFound();
-  const destination = countryOf(trip.country); const gross = trip.expenses.reduce((sum, row) => sum + (Number(row.price) || 0) * (Number(row.quantity) || 1), 0); const personal = trip.expenses.reduce((sum, row) => sum + personalExpense(row), 0);
+  const destination = countryOf(trip.country); const gross = trip.expenses.reduce((sum, row) => sum + expenseAmount(row), 0); const personal = trip.expenses.reduce((sum, row) => sum + personalExpense(row), 0);
   const checklistItems = trip.checklist.flatMap(group => group.items); const checked = checklistItems.filter(item => item.checked).length;
   const canQuickCheck = isUpcoming(trip);
+  const travelDetails = trip.travelScope === 'domestic' ? `<div><span>旅遊類型</span><b>國內旅遊</b></div><div><span>主要交通</span><b>${escapeHtml([trip.domesticTransport, trip.transportDetail].filter(Boolean).join(' · ') || '尚未填寫')}</b></div>` : `<div><span>出國航班</span><b>${escapeHtml([trip.airline, trip.flight].filter(Boolean).join(' ') || '尚未填寫')}</b></div><div><span>回國航班</span><b>${escapeHtml([trip.sameReturnAirline ? trip.airline : trip.returnAirline, trip.returnFlight].filter(Boolean).join(' ') || '尚未填寫')}</b></div>`;
+  const expenseContent = trip.expenses.length ? `${expenseChartMarkup(trip, gross, personal)}${expenseListMarkup(trip)}` : emptyState('還沒有支出紀錄', '記下每日住宿、交通與餐飲，預算會更清楚。', false);
   const topActions = `<button class="button button-ghost" data-action="print-trip" data-id="${escapeHtml(trip.id)}">匯出 PDF</button><button class="button button-ghost" data-action="share-trip" data-id="${escapeHtml(trip.id)}">分享唯讀連結</button>`;
-  app.innerHTML = `${pageBack(topActions)}<section class="trip-hero"><div class="trip-hero-copy"><p class="eyebrow">Trip record</p><div class="record-row"><h1>${escapeHtml(trip.title)}</h1>${isRecordComplete(trip) ? '' : '<span class="record-state">待完成記錄</span>'}</div><p class="route-large">${escapeHtml(routeText(trip))}</p><div class="detail-grid"><div class="detail-date-row"><div><span>旅行日期</span><b>${formatDate(trip.start)}－${formatDate(trip.end)}</b></div><div><span>旅行天數</span><b>${tripDays(trip)}</b></div></div><div><span>出國航班</span><b>${escapeHtml([trip.airline, trip.flight].filter(Boolean).join(' ') || '尚未填寫')}</b></div><div><span>回國航班</span><b>${escapeHtml([trip.sameReturnAirline ? trip.airline : trip.returnAirline, trip.returnFlight].filter(Boolean).join(' ') || '尚未填寫')}</b></div><div><span>同行</span><b>${escapeHtml(trip.companions || `${trip.people || 1} 人`)}</b></div><div><span>預算</span><b>${trip.budget ? `${escapeHtml(trip.budgetCurrency)} ${money(trip.budget)}` : '尚未設定'}</b></div><div class="detail-status"><span>狀態</span><b>${escapeHtml(trip.status || '規劃中')}</b></div></div><div class="trip-record-actions"><button class="button button-soft" type="button" data-scroll-target="trip-itinerary">行程</button><button class="button button-soft" type="button" data-scroll-target="trip-expenses">支出</button><button class="button button-soft" type="button" data-scroll-target="trip-checklist">準備清單</button></div></div><div class="trip-hero-image" role="img" aria-label="${escapeHtml(trip.country)}旅行風景" style="--trip-image:url('${tripImage(trip)}');--fallback:${destination.color}"></div></section>
-  <section class="section" id="trip-itinerary"><div class="section-head"><div><p class="eyebrow">Itinerary</p><h2>每日行程</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="itinerary">編輯</button></div>${trip.planDays.length ? `<div class="day-list">${trip.planDays.map(day => `<article class="day-card"><button class="day-date" type="button" data-toggle-trip-day aria-expanded="true"><span>${escapeHtml(formatDate(day.date, { month: 'short', day: 'numeric', weekday: 'short' }))}</span><span class="day-date-meta"><b>${day.items.length} 個行程</b><i aria-hidden="true">⌃</i></span></button><div class="day-items">${sortPlanItems(day.items).map(item => `<div class="timeline-item"><time>${escapeHtml(item.time || '未定')}</time><div><h3>${escapeHtml(item.activity || '未命名行程')}</h3><p class="transport preserve-lines">${escapeHtml(item.transport || '交通未定')}</p>${item.map ? `<a href="${escapeHtml(item.map)}" target="_blank" rel="noopener">開啟地圖 ↗</a>` : ''}</div><p class="preserve-lines">${linkifyText(item.note)}</p></div>`).join('')}</div></article>`).join('')}</div>` : emptyState('還沒有安排行程', '可以先記下最期待的一個地方。', false)}</section>
-  <section class="section" id="trip-expenses"><div class="section-head"><div><p class="eyebrow">Expenses</p><h2>旅行支出</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="overview">編輯</button></div>${trip.expenses.length ? `<div class="table-card"><div class="expense-display-head"><span>項目</span><div class="expense-numbers-head"><span>單價／個人實付</span><span>數量</span><span>平分</span></div><span>備註</span></div>${trip.expenses.map(row => `<div class="expense-display-row"><strong>${escapeHtml(row.item)}</strong><div class="expense-numbers"><span>NT$ ${money(row.price)}${Number(row.split) > 1 ? `<small>個人 NT$ ${money(personalExpense(row))}</small>` : ''}</span><span>${escapeHtml(row.quantity)}</span><span>${Number(row.split) > 1 ? `${escapeHtml(row.split)} 人` : '—'}</span></div><span class="expense-note preserve-lines">${linkifyText(row.note || '—')}</span></div>`).join('')}<div class="total"><span>總支出 <strong>NT$ ${money(gross)}</strong></span>${personal !== gross ? `<span>個人實付 <strong>NT$ ${money(personal)}</strong></span>` : ''}</div></div>` : emptyState('還沒有支出紀錄', '記下機票、住宿與交通，預算會更清楚。', false)}</section>
-  <section class="section" id="trip-checklist"><div class="section-head"><div><p class="eyebrow">Checklist</p><h2>旅程準備清單</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="checklist">編輯</button></div><div class="check-progress"><span style="--progress:${checklistItems.length ? checked / checklistItems.length * 100 : 0}%"></span></div><p class="section-copy">已完成 ${checked}／${checklistItems.length} 項 · ${canQuickCheck ? '可直接勾選更新' : '旅程已結束，請由編輯旅程更新'}</p><div class="checklist-view ${canQuickCheck ? '' : 'locked'}">${trip.checklist.map((group, groupIndex) => `<article><h3>${escapeHtml(group.category)}</h3>${group.items.map((item, itemIndex) => `<label class="read-check"><input type="checkbox" data-quick-check data-trip-id="${escapeHtml(trip.id)}" data-group-index="${groupIndex}" data-item-index="${itemIndex}" ${item.checked ? 'checked' : ''} ${canQuickCheck ? '' : 'disabled'}><span>${escapeHtml(item.name)}</span></label>`).join('')}</article>`).join('')}</div></section>`;
+  app.innerHTML = `${pageBack(topActions)}<section class="trip-hero"><div class="trip-hero-copy"><p class="eyebrow">Trip record</p><div class="record-row"><h1>${escapeHtml(trip.title)}</h1>${isRecordComplete(trip) ? '' : '<span class="record-state">待完成記錄</span>'}</div><p class="route-large">${escapeHtml(routeText(trip))}</p><div class="detail-grid"><div class="detail-date-row"><div><span>旅行日期</span><b>${formatDate(trip.start)}－${formatDate(trip.end)}</b></div><div><span>旅行天數</span><b>${tripDays(trip)}</b></div></div>${travelDetails}<div><span>同行</span><b>${escapeHtml(trip.companions || `${trip.people || 1} 人`)}</b></div><div><span>預算</span><b>${trip.budget ? escapeHtml(tripMoney(trip, trip.budget)) : '尚未設定'}</b></div><div class="detail-status"><span>狀態</span><b>${escapeHtml(trip.status || '規劃中')}</b></div></div></div><div class="trip-hero-image" role="img" aria-label="${escapeHtml(trip.country)}旅行風景" style="--trip-image:url('${tripImage(trip)}');--fallback:${destination.color}"></div></section>
+  <div class="trip-record-actions trip-content-tabs" role="tablist" aria-label="旅程內容"><button class="button active" type="button" role="tab" aria-selected="true" aria-controls="trip-itinerary" data-trip-tab="itinerary">每日行程</button><button class="button" type="button" role="tab" aria-selected="false" aria-controls="trip-expenses" data-trip-tab="expenses">旅行支出</button><button class="button" type="button" role="tab" aria-selected="false" aria-controls="trip-checklist" data-trip-tab="checklist">準備清單</button></div>
+  <div class="trip-tab-panels"><section class="section trip-tab-panel" id="trip-itinerary" data-trip-panel="itinerary" role="tabpanel"><div class="section-head"><div><p class="eyebrow">Itinerary</p><h2>每日行程</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="itinerary">編輯</button></div>${trip.planDays.length ? `<div class="day-list">${trip.planDays.map(day => `<article class="day-card"><button class="day-date" type="button" data-toggle-trip-day aria-expanded="true"><span>${escapeHtml(formatDate(day.date, { month: 'short', day: 'numeric', weekday: 'short' }))}</span><span class="day-date-meta"><b>${day.items.length} 個行程</b><i aria-hidden="true">⌃</i></span></button><div class="day-items">${sortPlanItems(day.items).map(item => `<div class="timeline-item"><time>${escapeHtml(item.time || '未定')}</time><div><h3>${escapeHtml(item.activity || '未命名行程')}</h3><p class="transport preserve-lines">${escapeHtml(item.transport || '交通未定')}</p>${item.map ? `<a href="${escapeHtml(item.map)}" target="_blank" rel="noopener">開啟地圖 ↗</a>` : ''}</div><p class="preserve-lines">${linkifyText(item.note)}</p></div>`).join('')}</div></article>`).join('')}</div>` : emptyState('還沒有安排行程', '可以先記下最期待的一個地方。', false)}</section>
+  <section class="section trip-tab-panel" id="trip-expenses" data-trip-panel="expenses" role="tabpanel" hidden><div class="section-head"><div><p class="eyebrow">Expenses</p><h2>旅行支出</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="expenses">編輯</button></div>${expenseContent}</section>
+  <section class="section trip-tab-panel" id="trip-checklist" data-trip-panel="checklist" role="tabpanel" hidden><div class="section-head"><div><p class="eyebrow">Checklist</p><h2>旅程準備清單</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="checklist">編輯</button></div><div class="check-progress"><span style="--progress:${checklistItems.length ? checked / checklistItems.length * 100 : 0}%"></span></div><p class="section-copy">已完成 ${checked}／${checklistItems.length} 項 · ${canQuickCheck ? '可直接勾選更新' : '旅程已結束，請由編輯旅程更新'}</p><div class="checklist-view ${canQuickCheck ? '' : 'locked'}">${trip.checklist.map((group, groupIndex) => `<article><h3>${escapeHtml(group.category)}</h3>${group.items.map((item, itemIndex) => `<label class="read-check"><input type="checkbox" data-quick-check data-trip-id="${escapeHtml(trip.id)}" data-group-index="${groupIndex}" data-item-index="${itemIndex}" ${item.checked ? 'checked' : ''} ${canQuickCheck ? '' : 'disabled'}><span>${escapeHtml(item.name)}</span></label>`).join('')}</article>`).join('')}</div></section></div>`;
 }
 
 function loadShareRecords() {
@@ -329,10 +361,10 @@ function syncTripDayEditors(seedDays) {
   const container = modalContent.querySelector('#day-entries'); if (!container) return;
   const liveDays = gatherPlanDays(); if (seedDays) activePlanDraft = clone(seedDays); else if (liveDays.length) activePlanDraft = clone(liveDays);
   const current = seedDays || (liveDays.length ? liveDays : activePlanDraft); const byDate = new Map(current.map(day => [day.date, day])); const dates = tripDateRange(); container.innerHTML = '';
-  if (!dates.length) { container.innerHTML = '<p class="helper itinerary-date-hint">請先到「基本資料與支出」設定開始與結束日期。</p>'; return; }
+  if (!dates.length) { container.innerHTML = '<p class="helper itinerary-date-hint">請先到「基本資料」設定開始與結束日期。</p>'; return; }
   dates.forEach(date => dayEditor(byDate.get(date) || { date, items: [] }, true));
 }
-function ensureInitialDay() { if (!modalContent.querySelector('.day-editor')) syncTripDayEditors(); }
+function ensureInitialDay() { if (!modalContent.querySelector('#day-entries .day-editor')) syncTripDayEditors(); }
 
 function dayEditor(day = { date: '', items: [] }, collapsed = true) {
   const selectedDate = day.date; if (!selectedDate) return;
@@ -360,11 +392,40 @@ function timeEditor(container, item = {}, collapsed = false) {
   row.querySelector('[data-remove-time]').addEventListener('click', async () => { const name = row.querySelector('[data-field="activity"]').value.trim() || row.querySelector('[data-field="time"]').value || '這個時間點'; if (!await confirmDeletion(`確定要刪除「${name}」嗎？`, '刪除行程時間點')) return; const day = row.closest('.day-editor'); row.remove(); if (day) updateDaySummary(day); }); container.append(row); if (!collapsed) requestAnimationFrame(() => refreshAutoGrow(row)); return row;
 }
 
-function expenseEditor(row = {}) {
+function updateExpenseDaySummary(day) {
+  const count = day.querySelectorAll('.expense-entry').length; const target = day.querySelector('[data-expense-day-count]');
+  if (target) target.textContent = `${count} 筆支出`;
+}
+
+function expenseDayEditor(date, expenses = [], collapsed = true) {
+  const container = modalContent.querySelector('#expense-day-entries'); if (!container) return null;
+  const wrapper = document.createElement('section'); wrapper.className = `day-editor expense-day-editor ${collapsed ? 'collapsed' : ''}`; wrapper.dataset.expenseDate = date;
+  wrapper.innerHTML = `<div class="day-editor-head"><button class="day-summary" type="button" data-toggle-expense-day aria-expanded="${collapsed ? 'false' : 'true'}"><strong>${escapeHtml(date ? planDateLabel(date) : '日期未設定')}</strong><span data-expense-day-count>0 筆支出</span><i aria-hidden="true">⌃</i></button></div><div class="day-editor-body expense-day-body" ${collapsed ? 'hidden' : ''}><div class="expense-editor-head" aria-hidden="true"><span></span><span>分類</span><span>項目</span><span>單價</span><span>數量</span></div><div class="expense-day-list"></div><button class="button button-soft append-button" type="button" data-add-expense>＋ 新增支出項目</button></div>`;
+  const list = wrapper.querySelector('.expense-day-list');
+  expenses.forEach(expense => expenseEditor(list, expense)); enablePointerSort(list, '.expense-entry', '.expense-drag');
+  wrapper.querySelector('[data-toggle-expense-day]').addEventListener('click', () => { const body = wrapper.querySelector('.expense-day-body'); body.hidden = !body.hidden; wrapper.classList.toggle('collapsed', body.hidden); wrapper.querySelector('[data-toggle-expense-day]').setAttribute('aria-expanded', String(!body.hidden)); });
+  wrapper.querySelector('[data-add-expense]').addEventListener('click', () => { const row = expenseEditor(list); updateExpenseDaySummary(wrapper); row.querySelector('[data-field="item"]').focus(); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+  container.append(wrapper); updateExpenseDaySummary(wrapper); return wrapper;
+}
+
+function syncExpenseDayEditors(seedExpenses) {
+  const container = modalContent.querySelector('#expense-day-entries'); if (!container) return;
+  const hasLiveEditor = Boolean(container.querySelector('.expense-day-editor')); const liveExpenses = gatherExpenses();
+  if (seedExpenses) activeExpenseDraft = clone(seedExpenses); else if (hasLiveEditor) activeExpenseDraft = clone(liveExpenses);
+  const current = seedExpenses || (hasLiveEditor ? liveExpenses : activeExpenseDraft); const grouped = new Map();
+  current.forEach(expense => { const date = expense.date || ''; if (!grouped.has(date)) grouped.set(date, []); grouped.get(date).push(expense); });
+  const plannedDates = tripDateRange(); const extraDates = [...grouped.keys()].filter(Boolean).filter(date => !plannedDates.includes(date)); const dates = [...new Set([...plannedDates, ...extraDates])].sort(); container.innerHTML = '';
+  if (!dates.length && !grouped.has('')) { container.innerHTML = '<p class="helper itinerary-date-hint">請先到「基本資料」設定開始與結束日期。</p>'; return; }
+  dates.forEach(date => expenseDayEditor(date, grouped.get(date) || [], true)); if (grouped.has('')) expenseDayEditor('', grouped.get(''), true);
+}
+
+function expenseEditor(container, row = {}) {
   const wrapper = document.createElement('div'); wrapper.className = 'entry expense-entry'; const expanded = Boolean(row.split || row.note);
-  const field = (name, label, type = 'text', value = '') => `<label class="expense-${name}"><span>${label}</span><input data-field="${name}" type="${type}" ${type === 'number' ? 'min="0"' : ''} value="${escapeHtml(value)}"></label>`;
-  wrapper.innerHTML = `<button class="drag-handle expense-drag" type="button" aria-label="拖曳調整支出順序" title="拖曳調整順序">⠿</button>${field('item', '項目', 'text', row.item || '')}${field('price', '單價', 'number', row.price || '')}${field('quantity', '數量', 'number', row.quantity || '1')}<div class="expense-more" ${expanded ? '' : 'hidden'}>${field('split', '平分', 'number', row.split || '')}${field('note', '備註', 'text', row.note || '')}</div><button class="button button-ghost expense-more-toggle" type="button" data-toggle-expense>${expanded ? '收起平分與備註' : '平分與備註 ＋'}</button><button class="icon-button expense-remove" type="button" aria-label="刪除此列">×</button>`;
-  wrapper.querySelector('[data-toggle-expense]').addEventListener('click', event => { const more = wrapper.querySelector('.expense-more'); more.hidden = !more.hidden; event.currentTarget.textContent = more.hidden ? '平分與備註 ＋' : '收起平分與備註'; }); wrapper.querySelector('.expense-remove').addEventListener('click', async () => { const name = wrapper.querySelector('[data-field="item"]').value.trim() || '這筆支出'; if (await confirmDeletion(`確定要刪除「${name}」嗎？`, '刪除支出項目')) wrapper.remove(); }); document.querySelector('#expense-entries').append(wrapper); return wrapper;
+  const field = (name, label, type = 'text', value = '') => `<label class="expense-${name}"><span>${label}</span><input data-field="${name}" aria-label="${label}" type="${type}" ${type === 'number' ? 'min="0"' : ''} value="${escapeHtml(value)}"></label>`;
+  wrapper.innerHTML = `<button class="drag-handle expense-drag" type="button" aria-label="拖曳調整支出順序" title="拖曳調整順序">⠿</button><label class="expense-category"><span>分類</span><input data-field="category" aria-label="分類" list="expense-category-list" value="${escapeHtml(row.category || '')}" placeholder="選擇或輸入分類"></label>${field('item', '項目', 'text', row.item || '')}${field('price', '單價', 'number', row.price || '')}${field('quantity', '數量', 'number', row.quantity || '1')}<div class="expense-more" ${expanded ? '' : 'hidden'}>${field('split', '平分', 'number', row.split || '')}${field('note', '備註', 'text', row.note || '')}</div><button class="button button-ghost expense-more-toggle" type="button" data-toggle-expense>${expanded ? '收起平分與備註' : '平分與備註 ＋'}</button><button class="icon-button expense-remove" type="button" aria-label="刪除此列">×</button>`;
+  wrapper.querySelector('[data-toggle-expense]').addEventListener('click', event => { const more = wrapper.querySelector('.expense-more'); more.hidden = !more.hidden; event.currentTarget.textContent = more.hidden ? '平分與備註 ＋' : '收起平分與備註'; });
+  wrapper.querySelector('.expense-remove').addEventListener('click', async () => { const name = wrapper.querySelector('[data-field="item"]').value.trim() || '這筆支出'; if (!await confirmDeletion(`確定要刪除「${name}」嗎？`, '刪除支出項目')) return; const day = wrapper.closest('.expense-day-editor'); wrapper.remove(); if (day) updateExpenseDaySummary(day); });
+  container.append(wrapper); enhanceDatalistInput(wrapper.querySelector('[list="expense-category-list"]')); return wrapper;
 }
 
 function checklistEditor(checklist) {
@@ -400,6 +461,32 @@ function enablePointerSort(container, itemSelector, handleSelector) {
 }
 
 function switchEditorTab(tab) { modalContent.querySelectorAll('[data-editor-tab]').forEach(button => button.classList.toggle('active', button.dataset.editorTab === tab)); modalContent.querySelectorAll('.editor-panel').forEach(panel => panel.hidden = panel.dataset.panel !== tab); if (tab === 'itinerary') ensureInitialDay(); }
+function syncTravelScopeFields() {
+  const scope = modalContent.querySelector('[name="travelScope"]')?.value || 'international'; const domestic = scope === 'domestic'; const countryName = modalContent.querySelector('[name="country"]')?.value || ''; const country = countryOf(countryName);
+  const international = modalContent.querySelector('.international-flight-fields'); const domesticFields = modalContent.querySelector('.domestic-transport-fields'); if (international) international.hidden = domestic; if (domesticFields) domesticFields.hidden = !domestic;
+  const originLabel = modalContent.querySelector('.origin-label'); const destinationLabel = modalContent.querySelector('.destination-label'); if (originLabel) originLabel.textContent = domestic ? '出發地' : '出發機場'; if (destinationLabel) destinationLabel.textContent = domestic ? '旅遊目的地' : '目的地機場';
+  const origin = modalContent.querySelector('[name="origin"]'); const destination = modalContent.querySelector('[name="destination"]'); if (origin) origin.placeholder = domestic ? '輸入城市、車站或地點' : '機場代碼或名稱'; if (destination) destination.placeholder = domestic ? '輸入城市、車站或地點' : '依國家搜尋機場';
+  replaceDatalist('origin-list', domestic ? country.cities : data.settings.originAirports); replaceDatalist('destination-list', domestic ? country.cities : country.airports);
+}
+function enhanceDatalistInput(input) {
+  if (!input || input.dataset.smartList) return; const listId = input.getAttribute('list'); if (!listId) return;
+  input.dataset.smartList = listId; input.removeAttribute('list'); input.setAttribute('autocomplete', 'off'); input.setAttribute('role', 'combobox'); input.setAttribute('aria-autocomplete', 'list'); input.setAttribute('aria-expanded', 'false');
+  const label = input.closest('label'); if (!label) return; label.classList.add('smart-select');
+  const menu = document.createElement('div'); menu.className = 'smart-options'; menu.hidden = true; menu.setAttribute('role', 'listbox'); label.append(menu);
+  const options = () => [...modalContent.querySelectorAll(`#${CSS.escape(listId)} option`)].map(option => option.value).filter(Boolean);
+  const hide = () => { menu.hidden = true; input.setAttribute('aria-expanded', 'false'); };
+  const show = (filter = '') => {
+    const keyword = filter.trim().toLocaleLowerCase('zh-TW'); const matches = options().filter(option => !keyword || option.toLocaleLowerCase('zh-TW').includes(keyword));
+    menu.innerHTML = matches.length ? matches.map(option => `<button type="button" role="option" data-smart-option="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join('') : '<span>沒有符合的選項，可直接輸入自訂內容</span>';
+    menu.hidden = false; input.setAttribute('aria-expanded', 'true');
+  };
+  input.addEventListener('focus', () => show()); input.addEventListener('click', () => { input.select(); show(); }); input.addEventListener('input', () => show(input.value));
+  input.addEventListener('keydown', event => { if (event.key === 'ArrowDown') { event.preventDefault(); show(); menu.querySelector('button')?.focus(); } else if (event.key === 'Escape') hide(); });
+  input.addEventListener('blur', () => setTimeout(() => { if (!label.contains(document.activeElement)) hide(); }, 80));
+  menu.addEventListener('pointerdown', event => event.preventDefault()); menu.addEventListener('click', event => { const option = event.target.closest('[data-smart-option]'); if (!option) return; input.value = option.dataset.smartOption; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); hide(); input.focus(); input.select(); });
+  menu.addEventListener('keydown', event => { const buttons = [...menu.querySelectorAll('button')]; const current = buttons.indexOf(document.activeElement); if (event.key === 'ArrowDown') { event.preventDefault(); buttons[Math.min(buttons.length - 1, current + 1)]?.focus(); } else if (event.key === 'ArrowUp') { event.preventDefault(); if (current <= 0) input.focus(); else buttons[current - 1].focus(); } else if (event.key === 'Escape') { hide(); input.focus(); } });
+}
+function enhanceDatalistInputs(root = modalContent) { root.querySelectorAll('input[list]').forEach(enhanceDatalistInput); }
 function updateEditorCompletion(form) {
   const values = Object.fromEntries(new FormData(form));
   const complete = Boolean(values.title && values.country && values.origin && values.destination && values.start && values.end);
@@ -425,22 +512,24 @@ function openTripEditor(id = '', forcedCountry = '', initialTab = 'overview') {
   const existing = data.trips.find(trip => trip.id === id); const trip = existing ? clone(existing) : normalizeTrip({ title: '', country: forcedCountry || '日本', people: '1' }, data.settings);
   if (!existing) trip.title = '';
   const countries = Object.keys(data.settings.countries); const country = countryOf(trip.country); const airlines = data.settings.airlinesByAirport[airportCode(trip.origin)] || [];
-  const body = `<form id="trip-form"><div class="editor-tabs" role="tablist"><button type="button" data-editor-tab="overview">基本資料與支出</button><button type="button" data-editor-tab="itinerary">每日行程</button><button type="button" data-editor-tab="checklist">準備清單</button></div><p id="record-completion-notice" class="completion-notice">待完成記錄：可先儲存，之後再補齊出發地、目的地與旅行日期。</p>
-  <section class="editor-panel" data-panel="overview"><div class="form-grid">${formField('title', '旅程名稱', trip.title, 'text', 'required placeholder="例如：東京秋日散策"')}<label>國家／地區<input name="country" list="country-list" value="${escapeHtml(trip.country)}" required placeholder="輸入或選擇國家">${datalist('country-list', countries)}</label><div class="form-pair full"><label>出發地<input name="origin" list="origin-list" value="${escapeHtml(trip.origin)}" placeholder="機場代碼或名稱">${datalist('origin-list', data.settings.originAirports)}</label><label>目的地<input name="destination" list="destination-list" value="${escapeHtml(trip.destination)}" placeholder="依國家搜尋機場">${datalist('destination-list', country.airports)}</label></div>${formField('start', '開始日期與時間', trip.start, 'datetime-local')}${formField('end', '結束日期與時間', trip.end, 'datetime-local')}<div class="form-pair full"><label>出國航空公司<input name="airline" list="airline-list" value="${escapeHtml(trip.airline)}" placeholder="搜尋航空公司">${datalist('airline-list', airlines)}</label>${formField('flight', '出國航班編號', trip.flight)}</div><label class="inline-check full"><input name="sameReturnAirline" type="checkbox" ${trip.sameReturnAirline ? 'checked' : ''}><span>回國航班同出國航空公司</span></label><div class="form-pair full return-flight-pair"><label class="return-airline-field" ${trip.sameReturnAirline ? 'hidden' : ''}>回國航空公司<input name="returnAirline" list="airline-list" value="${escapeHtml(trip.returnAirline)}" placeholder="輸入或搜尋航空公司"></label>${formField('returnFlight', '回國航班編號', trip.returnFlight)}</div><div class="form-pair people-pair full">${formField('people', '人數', trip.people, 'number', 'min="1"')}${formField('companions', '同行旅伴', trip.companions, 'text', 'placeholder="以頓號分隔"')}</div><div class="form-pair budget-pair full"><label>預算幣別<input name="budgetCurrency" list="currency-list" value="${escapeHtml(trip.budgetCurrency)}" placeholder="例如 TWD、JPY">${datalist('currency-list', ['TWD', 'JPY', 'KRW', 'USD', 'MYR', 'THB', 'HKD', 'CNY', 'SGD', 'EUR', 'GBP', 'AUD'])}</label>${formField('budget', '預算金額', trip.budget, 'number', 'min="0"')}</div>${formField('status', '狀態', trip.status, 'text', 'placeholder="例如：規劃中、已確認"')}<div class="full cover-uploader"><span class="field-label">旅程封面圖片</span><input name="coverImage" type="hidden" value="${escapeHtml(trip.coverImage)}"><div class="cover-upload-row"><div class="cover-preview" style="--preview:url('${tripImage(trip)}');--fallback:${country.color}" role="img" aria-label="旅程封面預覽"></div><div><label class="button button-soft upload-button">上載圖片<input id="cover-upload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><button class="button button-ghost" type="button" data-remove-cover>使用國家圖片</button><p class="helper">圖片會壓縮後保存在這個瀏覽器，建議小於 10MB。</p></div></div></div><div class="full"><span class="field-label">城市（可複選）</span><div class="city-add"><input id="custom-city-input" type="text" placeholder="輸入城市後按 Enter"><button class="button button-soft" type="button" data-add-city>＋ 新增城市</button></div><div class="city-chips" id="city-chips"></div></div></div><section class="subform"><div class="subform-head"><h3>旅行支出</h3></div><div id="expense-entries"></div><button class="button button-soft append-button" type="button" data-add-expense>＋ 新增支出項目</button></section></section>
+  const domestic = trip.travelScope === 'domestic'; const routeOptions = domestic ? country.cities : data.settings.originAirports; const destinationOptions = domestic ? country.cities : country.airports;
+  const body = `<form id="trip-form"><div class="editor-tabs" role="tablist"><button type="button" data-editor-tab="overview">基本資料</button><button type="button" data-editor-tab="expenses">旅行支出</button><button type="button" data-editor-tab="itinerary">每日行程</button><button type="button" data-editor-tab="checklist">準備清單</button></div><p id="record-completion-notice" class="completion-notice">待完成記錄：可先儲存，之後再補齊出發地、目的地與旅行日期。</p>
+  <section class="editor-panel" data-panel="overview"><div class="form-grid">${formField('title', '旅程名稱', trip.title, 'text', 'required placeholder="例如：台南美食小旅行"')}<label>國家／地區<input name="country" list="country-list" value="${escapeHtml(trip.country)}" required placeholder="輸入或選擇國家">${datalist('country-list', countries)}</label><label class="full">旅遊類型<select name="travelScope"><option value="international" ${domestic ? '' : 'selected'}>國外旅遊</option><option value="domestic" ${domestic ? 'selected' : ''}>國內旅遊</option></select></label><div class="form-pair full route-fields"><label><span class="origin-label">${domestic ? '出發地' : '出發機場'}</span><input name="origin" list="origin-list" value="${escapeHtml(trip.origin)}" placeholder="${domestic ? '輸入城市、車站或地點' : '機場代碼或名稱'}">${datalist('origin-list', routeOptions)}</label><label><span class="destination-label">${domestic ? '旅遊目的地' : '目的地機場'}</span><input name="destination" list="destination-list" value="${escapeHtml(trip.destination)}" placeholder="${domestic ? '輸入城市、車站或地點' : '依國家搜尋機場'}">${datalist('destination-list', destinationOptions)}</label></div>${formField('start', '開始日期與時間', trip.start, 'datetime-local')}${formField('end', '結束日期與時間', trip.end, 'datetime-local')}<div class="international-flight-fields full" ${domestic ? 'hidden' : ''}><div class="form-pair"><label>出國航空公司<input name="airline" list="airline-list" value="${escapeHtml(trip.airline)}" placeholder="搜尋航空公司">${datalist('airline-list', airlines)}</label>${formField('flight', '出國航班編號', trip.flight)}</div><label class="inline-check"><input name="sameReturnAirline" type="checkbox" ${trip.sameReturnAirline ? 'checked' : ''}><span>回國航班同出國航空公司</span></label><div class="form-pair return-flight-pair"><label class="return-airline-field" ${trip.sameReturnAirline ? 'hidden' : ''}>回國航空公司<input name="returnAirline" list="airline-list" value="${escapeHtml(trip.returnAirline)}" placeholder="輸入或搜尋航空公司"></label>${formField('returnFlight', '回國航班編號', trip.returnFlight)}</div></div><div class="form-pair full domestic-transport-fields" ${domestic ? '' : 'hidden'}><label>主要交通方式<select name="domesticTransport"><option value="">請選擇</option>${DOMESTIC_TRANSPORTS.map(item => `<option ${item === trip.domesticTransport ? 'selected' : ''}>${item}</option>`).join('')}</select></label>${formField('transportDetail', '班次／車次（選填）', trip.transportDetail, 'text', 'placeholder="例如：高鐵 813、台鐵 112 次"')}</div><div class="form-pair people-pair full">${formField('people', '人數', trip.people, 'number', 'min="1"')}${formField('companions', '同行旅伴', trip.companions, 'text', 'placeholder="以頓號分隔"')}</div><div class="form-pair budget-pair full"><label>預算幣別<input name="budgetCurrency" list="currency-list" value="${escapeHtml(trip.budgetCurrency)}" placeholder="例如 TWD、JPY">${datalist('currency-list', ['TWD', 'JPY', 'KRW', 'USD', 'MYR', 'THB', 'HKD', 'CNY', 'SGD', 'EUR', 'GBP', 'AUD'])}</label>${formField('budget', '預算金額', trip.budget, 'number', 'min="0"')}</div>${formField('status', '狀態', trip.status, 'text', 'placeholder="例如：規劃中、已確認"')}<div class="full cover-uploader"><span class="field-label">旅程封面圖片</span><input name="coverImage" type="hidden" value="${escapeHtml(trip.coverImage)}"><div class="cover-upload-row"><div class="cover-preview" style="--preview:url('${tripImage(trip)}');--fallback:${country.color}" role="img" aria-label="旅程封面預覽"></div><div><label class="button button-soft upload-button">上載圖片<input id="cover-upload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><button class="button button-ghost" type="button" data-remove-cover>使用國家圖片</button><p class="helper">圖片會壓縮後保存在這個瀏覽器，建議小於 10MB。</p></div></div></div><div class="full"><span class="field-label">城市（可複選）</span><div class="city-add"><input id="custom-city-input" type="text" placeholder="輸入城市後按 Enter"><button class="button button-soft" type="button" data-add-city>＋ 新增城市</button></div><div class="city-chips" id="city-chips"></div></div></div></section>
+  <section class="editor-panel" data-panel="expenses" hidden><div class="panel-intro"><div><h3>旅行支出</h3><p>旅行日期會自動建立，每個日期只需選擇一次，再於區塊內連續新增消費。</p></div></div>${datalist('expense-category-list', EXPENSE_CATEGORIES)}<div id="expense-day-entries"></div></section>
   <section class="editor-panel" data-panel="itinerary" hidden><div class="panel-intro"><div><h3>每日行程</h3><p>旅行日期會依開始與結束日期自動建立，點擊日期即可展開填寫。</p></div></div><div id="day-entries"></div></section>
   <section class="editor-panel" data-panel="checklist" hidden><div class="panel-intro"><div><h3>旅程準備清單</h3><p>勾選已完成項目，也可以為這趟旅程新增專屬物品。</p></div></div><div id="checklist-entries"></div></section></form>`;
   const footer = `<div class="modal-foot">${existing ? '<button class="button button-danger" type="button" data-delete>刪除旅程</button>' : ''}<div class="modal-foot-right"><button class="button button-ghost" type="button" data-cancel>取消</button><button class="button button-primary" type="submit" form="trip-form">儲存旅程</button></div></div>`;
   modalFrame(existing ? '編輯旅程' : '新增旅程', body, footer, true);
-  modalContent.querySelector('#expense-entries').insertAdjacentHTML('beforebegin', '<div class="expense-editor-head" aria-hidden="true"><span></span><span>項目</span><span>單價</span><span>數量</span></div>');
-  renderCityChips(trip.country, trip.cities); trip.expenses.forEach(expenseEditor); enablePointerSort(modalContent.querySelector('#expense-entries'), '.expense-entry', '.expense-drag'); activePlanDraft = clone(trip.planDays); syncTripDayEditors(activePlanDraft); checklistEditor(trip.checklist);
+  renderCityChips(trip.country, trip.cities); activeExpenseDraft = clone(trip.expenses); syncExpenseDayEditors(activeExpenseDraft); activePlanDraft = clone(trip.planDays); syncTripDayEditors(activePlanDraft); checklistEditor(trip.checklist); enhanceDatalistInputs();
   modalContent.querySelectorAll('[data-editor-tab]').forEach(button => button.addEventListener('click', () => switchEditorTab(button.dataset.editorTab)));
-  modalContent.querySelector('[data-add-expense]').addEventListener('click', () => { const row = expenseEditor(); row.querySelector('[data-field="item"]').focus(); }); modalContent.querySelector('[data-cancel]').addEventListener('click', () => modal.close());
+  modalContent.querySelector('[data-cancel]').addEventListener('click', () => modal.close());
   modalContent.querySelector('[name="country"]').addEventListener('input', event => {
     if (!data.settings.countries[event.target.value]) return;
-    const selected = countryOf(event.target.value); replaceDatalist('destination-list', selected.airports); renderCityChips(event.target.value, []); modalContent.querySelector('[name="destination"]').value = '';
+    renderCityChips(event.target.value, []); modalContent.querySelector('[name="destination"]').value = ''; syncTravelScopeFields();
   });
+  modalContent.querySelector('[name="travelScope"]').addEventListener('change', syncTravelScopeFields);
   modalContent.querySelector('[name="origin"]').addEventListener('input', event => replaceDatalist('airline-list', data.settings.airlinesByAirport[airportCode(event.target.value)] || []));
-  modalContent.querySelectorAll('[name="start"], [name="end"]').forEach(input => input.addEventListener('change', () => syncTripDayEditors()));
+  modalContent.querySelectorAll('[name="start"], [name="end"]').forEach(input => input.addEventListener('change', () => { syncTripDayEditors(); syncExpenseDayEditors(); }));
   modalContent.querySelector('[name="sameReturnAirline"]').addEventListener('change', event => { modalContent.querySelector('.return-airline-field').hidden = event.target.checked; });
   modalContent.querySelector('#custom-city-input').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addCustomCity(); } }); modalContent.querySelector('[data-add-city]').addEventListener('click', addCustomCity);
   modalContent.querySelector('#cover-upload').addEventListener('change', async event => { try { const result = await compressCoverImage(event.target.files[0]); modalContent.querySelector('[name="coverImage"]').value = result; modalContent.querySelector('.cover-preview').style.setProperty('--preview', `url('${result}')`); showToast('封面圖片已上載'); } catch (error) { alert(error.message); } finally { event.target.value = ''; } });
@@ -448,14 +537,16 @@ function openTripEditor(id = '', forcedCountry = '', initialTab = 'overview') {
   modalContent.querySelector('#trip-form').addEventListener('input', () => updateEditorCompletion(modalContent.querySelector('#trip-form')));
   if (existing) modalContent.querySelector('[data-delete]').addEventListener('click', () => deleteTrip(existing));
   modalContent.querySelector('#trip-form').addEventListener('submit', event => saveTrip(event, trip.id, Boolean(existing)));
-  switchEditorTab(initialTab); updateEditorCompletion(modalContent.querySelector('#trip-form')); requestAnimationFrame(() => modalContent.querySelector('[name="title"]').focus());
+  syncTravelScopeFields(); switchEditorTab(initialTab); updateEditorCompletion(modalContent.querySelector('#trip-form')); requestAnimationFrame(() => modalContent.querySelector('[name="title"]').focus());
 }
 
 function replaceDatalist(id, options) { const list = modalContent.querySelector(`#${id}`); if (list) list.innerHTML = options.map(option => `<option value="${escapeHtml(option)}"></option>`).join(''); }
 function renderCityChips(country, selected) { const container = modalContent.querySelector('#city-chips'); if (!container) return; container.innerHTML = countryOf(country).cities.map(city => `<label class="city-chip"><input type="checkbox" value="${escapeHtml(city)}" ${selected.includes(city) ? 'checked' : ''}><span>${escapeHtml(city)}</span></label>`).join('') || '<p class="helper">這個國家尚未設定城市，可先儲存旅程，再到網站設定新增。</p>'; }
 
-function gatherPlanDays() { return [...modalContent.querySelectorAll('.day-editor')].map(day => ({ date: day.querySelector('.day-input').value, items: sortPlanItems([...day.querySelectorAll('.time-editor')].map(row => Object.fromEntries([...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.value.trim()]))).filter(item => Object.values(item).some(Boolean))) })).filter(day => day.items.length); }
-function gatherExpenses() { return [...modalContent.querySelectorAll('.expense-entry')].map(row => Object.fromEntries([...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.value.trim()]))).filter(row => Object.values(row).some(Boolean)); }
+function gatherPlanDays() { return [...modalContent.querySelectorAll('#day-entries .day-editor')].map(day => ({ date: day.querySelector('.day-input').value, items: sortPlanItems([...day.querySelectorAll('.time-editor')].map(row => Object.fromEntries([...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.value.trim()]))).filter(item => Object.values(item).some(Boolean))) })).filter(day => day.items.length); }
+function gatherExpenses() {
+  return [...modalContent.querySelectorAll('.expense-entry')].map(row => ({ date: row.closest('.expense-day-editor')?.dataset.expenseDate || '', ...Object.fromEntries([...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.value.trim()])) })).filter(row => row.item || row.price || row.note);
+}
 function gatherChecklist() { return [...modalContent.querySelectorAll('.check-group-editor')].map(group => ({ category: group.querySelector('.check-category').value.trim() || '其他', items: [...group.querySelectorAll('.check-edit')].map(row => ({ checked: row.querySelector('[type="checkbox"]').checked, name: row.querySelector('[type="text"]').value.trim() })).filter(item => item.name) })).filter(group => group.items.length); }
 
 function saveTrip(event, id, replacing) {
@@ -610,17 +701,18 @@ function createSharePayload(trip) {
   const destination = countryOf(trip.country); const theme = data.settings.theme || DEFAULT_THEME;
   const packedTrip = [trip.id, trip.title, trip.country, trip.cities, trip.origin, trip.destination, shareableImage(trip.coverImage), trip.start, trip.end, trip.airline, trip.flight, trip.sameReturnAirline ? 1 : 0, trip.returnAirline, trip.returnFlight, trip.status, trip.people, trip.companions, trip.budget, trip.budgetCurrency,
     trip.planDays.map(day => [day.date, day.items.map(item => [item.time, item.activity, item.transport, item.map, item.note])]),
-    trip.expenses.map(row => [row.item, row.price, row.quantity, row.split, row.note]),
-    trip.checklist.map(group => [group.category, group.items.map(item => [item.name, item.checked ? 1 : 0])])];
-  return { v: 2, t: packedTrip, c: [destination.emoji, normalizeHex(destination.color, '#4f665b'), shareableImage(destination.image)], h: [theme.accent, theme.warm, theme.background] };
+    trip.expenses.map(row => [row.item, row.price, row.quantity, row.split, row.note, row.date, row.category]),
+    trip.checklist.map(group => [group.category, group.items.map(item => [item.name, item.checked ? 1 : 0])]),
+    trip.travelScope, trip.domesticTransport, trip.transportDetail];
+  return { v: 3, t: packedTrip, c: [destination.emoji, normalizeHex(destination.color, '#4f665b'), shareableImage(destination.image)], h: [theme.accent, theme.warm, theme.background] };
 }
 
 function expandSharePayload(payload) {
-  if (payload?.v !== 2) return payload;
+  if (![2, 3].includes(payload?.v)) return payload;
   const t = payload.t; if (!Array.isArray(t) || !Array.isArray(payload.c) || !Array.isArray(payload.h)) throw new Error('分享資料格式不正確');
-  return { version: 1, trip: { id: t[0], title: t[1], country: t[2], cities: t[3], origin: t[4], destination: t[5], coverImage: t[6], start: t[7], end: t[8], airline: t[9], flight: t[10], sameReturnAirline: Boolean(t[11]), returnAirline: t[12], returnFlight: t[13], status: t[14], people: t[15], companions: t[16], budget: t[17], budgetCurrency: t[18],
+  return { version: 1, trip: { id: t[0], title: t[1], country: t[2], cities: t[3], origin: t[4], destination: t[5], coverImage: t[6], start: t[7], end: t[8], airline: t[9], flight: t[10], sameReturnAirline: Boolean(t[11]), returnAirline: t[12], returnFlight: t[13], status: t[14], people: t[15], companions: t[16], budget: t[17], budgetCurrency: t[18], travelScope: payload.v >= 3 ? t[22] : 'international', domesticTransport: payload.v >= 3 ? t[23] : '', transportDetail: payload.v >= 3 ? t[24] : '',
     planDays: (t[19] || []).map(day => ({ date: day[0], items: (day[1] || []).map(item => ({ time: item[0], activity: item[1], transport: item[2], map: item[3], note: item[4] })) })),
-    expenses: (t[20] || []).map(row => ({ item: row[0], price: row[1], quantity: row[2], split: row[3], note: row[4] })),
+    expenses: (t[20] || []).map(row => ({ item: row[0], price: row[1], quantity: row[2], split: row[3], note: row[4], date: row[5] || '', category: row[6] || '其他' })),
     checklist: (t[21] || []).map(group => ({ category: group[0], items: (group[1] || []).map(item => ({ name: item[0], checked: Boolean(item[1]) })) })) },
     country: { emoji: payload.c[0], color: payload.c[1], image: payload.c[2], cities: [], airports: [] }, theme: { accent: payload.h[0], warm: payload.h[1], background: payload.h[2] } };
 }
@@ -640,7 +732,7 @@ async function renderSharedTrip(token) {
     const originalData = data;
     try { data = { version: 3, settings: sharedSettings, trips: [sharedTrip], countryNotes: {}, notes: [] }; renderTrip(sharedTrip.id); } finally { data = originalData; }
     document.body.classList.add('readonly-share'); document.title = `${sharedTrip.title}－唯讀旅程`; applyTheme(sharedSettings.theme);
-    app.querySelectorAll('button:not([data-toggle-trip-day]), .page-back, .trip-record-actions').forEach(element => element.remove());
+    app.querySelectorAll('button:not([data-toggle-trip-day]):not([data-trip-tab]), .page-back').forEach(element => element.remove());
     app.querySelectorAll('input').forEach(input => { input.disabled = true; input.removeAttribute('data-quick-check'); });
     app.querySelectorAll('.section').forEach(section => { if (section.querySelector('h2')?.textContent === '旅程準備清單') { const copy = section.querySelector('.section-copy'); if (copy) copy.textContent = `已完成 ${sharedTrip.checklist.flatMap(group => group.items).filter(item => item.checked).length}／${sharedTrip.checklist.flatMap(group => group.items).length} 項`; } });
     const expiry = onlineShare?.expiresAt ? `此連結將於 ${shareExpiryDate(onlineShare.expiresAt)} 到期。` : '此頁僅供查看，內容無法編輯。';
@@ -703,11 +795,12 @@ app.addEventListener('change', event => {
     if (!trip || !isUpcoming(trip)) { renderTrip(event.target.dataset.tripId); return; }
     const item = trip.checklist[Number(event.target.dataset.groupIndex)]?.items[Number(event.target.dataset.itemIndex)];
     if (!item) return;
-    item.checked = event.target.checked; saveData(); renderTrip(trip.id); showToast(event.target.checked ? '已標記為完成' : '已取消完成');
+    item.checked = event.target.checked; saveData(); renderTrip(trip.id); switchTripContentTab('checklist'); showToast(event.target.checked ? '已標記為完成' : '已取消完成');
   }
 });
 app.addEventListener('click', event => {
   const target = event.target.closest('button, a'); if (!target) return; const { action, id, country, index, city, tab } = target.dataset;
+  if (target.dataset.tripTab) { switchTripContentTab(target.dataset.tripTab); return; }
   if (target.matches('[data-toggle-trip-day]')) { const card = target.closest('.day-card'); const items = card?.querySelector('.day-items'); if (!items) return; items.hidden = !items.hidden; card.classList.toggle('is-collapsed', items.hidden); target.setAttribute('aria-expanded', String(!items.hidden)); return; }
   if (target.dataset.scrollTarget) { document.querySelector(`#${target.dataset.scrollTarget}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   if (action === 'back') { if (history.length > 1) history.back(); else location.hash = 'home'; return; }
