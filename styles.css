@@ -232,8 +232,8 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .subform-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .subform-head h3 { margin: 0; }
 .entry { display: grid; grid-template-columns: 1fr .7fr 1.2fr 1fr 1.4fr auto; gap: 7px; margin-bottom: 8px; }
-.expense-editor-head { display: grid; grid-template-columns: 28px minmax(110px,.8fr) minmax(160px,1.25fr) minmax(90px,.7fr) minmax(60px,.48fr) auto 40px; gap: 8px; padding: 0 11px 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
-.expense-entry { grid-template-columns: 28px minmax(110px,.8fr) minmax(160px,1.25fr) minmax(90px,.7fr) minmax(60px,.48fr) auto 40px; grid-template-areas: "drag category item price quantity toggle remove" "more more more more more more more"; align-items: center; gap: 8px; padding: 11px; border: 0; border-radius: var(--radius-sm); background: var(--surface-soft); }
+.expense-editor-head { display: grid; grid-template-columns: 28px repeat(3, minmax(120px, 1fr)) minmax(72px, .58fr) 42px 40px; gap: 8px; padding: 0 11px 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.expense-entry { grid-template-columns: 28px repeat(3, minmax(120px, 1fr)) minmax(72px, .58fr) 42px 40px; grid-template-areas: "drag category item price quantity toggle remove" "more more more more more more more"; align-items: center; gap: 8px; padding: 11px; border: 0; border-radius: var(--radius-sm); background: var(--surface-soft); }
 .expense-entry > * { min-width: 0; }
 .expense-drag { grid-area: drag; }
 .expense-category { grid-area: category; }
@@ -243,12 +243,13 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .expense-entry label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; }
 .expense-entry label > span { display: block; margin: 0; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .expense-category > span, .expense-item > span, .expense-price > span, .expense-quantity > span { display: none !important; }
+.expense-category, .expense-item, .expense-price, .expense-quantity { grid-template-columns: minmax(0, 1fr) !important; }
 .expense-entry input { min-height: 40px; border: 1px solid #dfe2dc; border-radius: 10px; padding: 7px 10px; background: white; box-shadow: 0 1px 2px rgba(29, 43, 36, .03); }
 .expense-more { grid-area: more; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
 .expense-more label { gap: 7px; padding-left: 10px; border: 1px solid #dfe2dc; border-radius: 10px; background: white; box-shadow: 0 1px 2px rgba(29, 43, 36, .03); }
 .expense-more label input { border: 0; border-radius: 10px; padding-left: 4px; }
-.expense-more-toggle { grid-area: toggle; align-self: center; margin-left: 8px; border: 1px solid var(--line); background: white; white-space: nowrap; }
-.expense-remove { grid-area: remove; align-self: center !important; margin: 0 0 0 8px; background: white; }
+.expense-more-toggle { grid-area: toggle; align-self: center; width: 42px; min-height: 40px; margin: 0; border: 1px solid var(--line); padding: 0; background: white; font-size: 20px; line-height: 1; white-space: nowrap; }
+.expense-remove { grid-area: remove; align-self: center !important; margin: 0; background: white; }
 .expense-day-editor { position: relative; overflow: visible; }
 .expense-day-list { display: grid; gap: 8px; }
 .smart-select { position: relative; }
@@ -399,6 +400,7 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
   .expense-editor-head { display: none; }
   .expense-entry { position: relative; grid-template-columns: 28px repeat(6, minmax(0, 1fr)); grid-template-areas: "drag category category item item item item" "drag price price price quantity quantity quantity" "more more more more more more more" "toggle toggle toggle toggle toggle toggle toggle"; align-items: center; gap: 7px 6px; border: 0; }
   .expense-category > span, .expense-item > span, .expense-price > span, .expense-quantity > span { display: block !important; }
+  .expense-category, .expense-item, .expense-price, .expense-quantity { grid-template-columns: auto minmax(0, 1fr) !important; }
   .expense-more { grid-column: 1 / -1; }
   .expense-more-toggle { width: auto; justify-self: stretch; margin: 0 48px 0 0; }
   .expense-remove { position: absolute; right: 11px; bottom: 11px; justify-self: auto; margin: 0; }
