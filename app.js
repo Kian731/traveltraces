@@ -138,6 +138,7 @@ let activeOwnerSync = null;
 let pendingSharedRefresh = null;
 let activeTripView = { id: '', tab: 'itinerary' };
 let shareRefreshTimer = null;
+let checklistSyncState = { tripId: '', timer: null, running: false, queued: false, changes: 0 };
 function shadeHex(hex, amount = -22) { const clean = String(hex || '').replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(clean)) return DEFAULT_THEME.accent; const value = Number.parseInt(clean, 16); const channel = shift => Math.max(0, Math.min(255, shift + amount)); return `#${[value >> 16, value >> 8 & 255, value & 255].map(channel => channel.toString(16).padStart(2, '0')).join('')}`; }
 function applyTheme(theme = data.settings.theme || DEFAULT_THEME) { const root = document.documentElement; root.style.setProperty('--accent', theme.accent || DEFAULT_THEME.accent); root.style.setProperty('--accent-hover', shadeHex(theme.accent || DEFAULT_THEME.accent)); root.style.setProperty('--warm', theme.warm || DEFAULT_THEME.warm); root.style.setProperty('--bg', theme.background || DEFAULT_THEME.background); }
 applyTheme();
@@ -933,6 +934,54 @@ async function refreshSharedView(renderLatest) {
   requestAnimationFrame(() => window.scrollTo({ top: scrollTop, behavior: 'instant' }));
 }
 
+function updateChecklistProgress(trip) {
+  const panel = app.querySelector('#trip-checklist'); if (!panel) return;
+  const items = trip.checklist.flatMap(group => group.items); const checked = items.filter(item => item.checked).length;
+  panel.querySelector('.check-progress span')?.style.setProperty('--progress', `${items.length ? checked / items.length * 100 : 0}%`);
+  const copy = panel.querySelector('.section-copy');
+  if (copy) copy.textContent = `已完成 ${checked}／${items.length} 項 · ${isUpcoming(trip) ? '可直接勾選更新' : '旅程已結束，請由編輯旅程更新'}`;
+}
+
+function queueChecklistSync(tripId) {
+  if (checklistSyncState.tripId && checklistSyncState.tripId !== tripId) clearTimeout(checklistSyncState.timer);
+  checklistSyncState.tripId = tripId; checklistSyncState.queued = true; checklistSyncState.changes += 1;
+  clearTimeout(checklistSyncState.timer);
+  checklistSyncState.timer = setTimeout(flushChecklistSync, 650);
+}
+
+async function flushChecklistSync() {
+  if (checklistSyncState.running) { checklistSyncState.queued = true; return; }
+  const tripId = checklistSyncState.tripId; const trip = data.trips.find(item => item.id === tripId); if (!trip) return;
+  const changedCount = checklistSyncState.changes; checklistSyncState.changes = 0; checklistSyncState.queued = false; checklistSyncState.running = true;
+  try {
+    if (activeCollaboration?.tripId === tripId) {
+      await syncActiveCollaboration(trip);
+      if (!pendingSharedRefresh) {
+        replaceSyncBanner('.collaboration-banner', `<div class="readonly-share-banner collaboration-banner"><div class="readonly-share-message"><strong>協作編輯中</strong><span>準備清單已批次同步 · 版本 ${activeCollaboration.version}</span></div><button class="button button-soft" type="button" data-action="reload-collab">重新載入</button></div>`);
+      }
+      startShareRefresh('collab', activeCollaboration.id, activeCollaboration.editToken, activeCollaboration.version);
+      showToast(`${changedCount} 項準備清單已同步`);
+    } else {
+      const result = await syncTripShares(trip, { quiet: true }); const record = linkedShareForTrip(tripId);
+      if (record && !pendingSharedRefresh) {
+        activeOwnerSync = { record, tripId, conflict: false };
+        replaceSyncBanner('.owner-sync-banner', ownerSyncBanner(record));
+        startShareRefresh('owner', record.id, record.editToken, record.version, tripId);
+      }
+      if (result.conflicts) showToast('勾選已保存在本機，雲端有較新版本待確認');
+      else if (result.failed) showToast('勾選已保存在本機，雲端同步暫時失敗');
+      else showToast(record ? `${changedCount} 項準備清單已同步` : `${changedCount} 項準備清單已儲存`);
+    }
+  } catch (error) {
+    showToast(error.status === 409 ? '勾選已保存在本機，請先套用雲端新版本' : '勾選已保存在本機，稍後再同步');
+  } finally {
+    checklistSyncState.running = false;
+    if (checklistSyncState.queued || checklistSyncState.changes) {
+      clearTimeout(checklistSyncState.timer); checklistSyncState.timer = setTimeout(flushChecklistSync, 300);
+    }
+  }
+}
+
 async function renderSharedTrip(token) {
   clearInterval(shareRefreshTimer); app.innerHTML = '<section class="page-intro"><div class="empty"><h3>正在開啟唯讀旅程…</h3></div></section>';
   try {
@@ -1027,7 +1076,7 @@ function backupData() { const blob = new Blob([JSON.stringify(data, null, 2)], {
 async function importData() { const file = fileInput.files[0]; if (!file) return; try { const imported = normalizeData(JSON.parse(await file.text())); if (!confirm(`將匯入 ${imported.trips.length} 趟旅程並取代目前資料，確定繼續嗎？`)) return; data = imported; saveData(); route(); showToast('資料匯入完成'); } catch (error) { alert(`無法匯入檔案：${error.message}`); } finally { fileInput.value = ''; } }
 
 app.addEventListener('submit', event => { if (event.target.closest('.settings-grid')) { event.preventDefault(); bindSettingsSubmit(event.target); } });
-app.addEventListener('change', async event => {
+app.addEventListener('change', event => {
   if (event.target.id === 'settings-country') renderSettings(event.target.value);
   if (event.target.id === 'airline-airport') renderSettings(undefined, event.target.value);
   if (event.target.matches('[data-quick-check]')) {
@@ -1035,17 +1084,9 @@ app.addEventListener('change', async event => {
     if (!trip || !isUpcoming(trip)) { renderTrip(event.target.dataset.tripId); return; }
     const item = trip.checklist[Number(event.target.dataset.groupIndex)]?.items[Number(event.target.dataset.itemIndex)];
     if (!item) return;
-    const previous = item.checked; item.checked = event.target.checked;
-    if (activeCollaboration?.tripId === trip.id) {
-      try { await syncActiveCollaboration(trip); }
-      catch (error) { item.checked = previous; event.target.checked = previous; alert(error.status === 409 ? '其他裝置已更新這趟旅程，請重新載入後再勾選。' : `無法同步：${error.message}`); return; }
-    }
-    saveData();
-    const syncResult = activeCollaboration ? null : await syncTripShares(trip, { quiet: true });
-    if (activeCollaboration) await refreshSharedView(() => renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken)); else { await refreshSharedView(() => renderOwnedTrip(trip.id)); switchTripContentTab('checklist'); }
-    if (syncResult?.conflicts) showToast('本機已更新，但雲端已有較新版本');
-    else if (syncResult?.failed) showToast('本機已更新，雲端同步暫時失敗');
-    else showToast(event.target.checked ? '已標記為完成並同步' : '已取消完成並同步');
+    item.checked = event.target.checked;
+    if (!saveData()) { item.checked = !event.target.checked; event.target.checked = item.checked; return; }
+    updateChecklistProgress(trip); queueChecklistSync(trip.id);
   }
 });
 app.addEventListener('click', event => {
