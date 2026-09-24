@@ -15,6 +15,7 @@ const SHARE_RECORDS_STORAGE = 'travelShareRecords';
 const SHARE_API_URL = 'https://travel-share-api.ryankian7.workers.dev';
 const PUBLIC_SITE_URL = 'https://kian731.github.io/traveltraces/';
 const TURNSTILE_SITE_KEY = '0x4AAAAAAEvwNDo21D2D_HK8';
+const SHARE_REFRESH_INTERVAL = 5000;
 const HOME_HERO_IMAGE = 'https://images.unsplash.com/photo-1595789412965-8a2d37e7cfe5?auto=format&fit=crop&w=1800&q=85';
 const DEFAULT_THEME = { accent: '#325e4b', warm: '#c66e45', background: '#f6f6f2' };
 const DOMESTIC_TRANSPORTS = ['國內航班', '客運', '火車', '高鐵', '捷運', '開車', '機車', '渡輪', '自行車', '其他'];
@@ -132,6 +133,8 @@ let homeStatsScope = 'all';
 let activePlanDraft = [];
 let activeExpenseDraft = [];
 let activeSharedImport = null;
+let activeCollaboration = null;
+let shareRefreshTimer = null;
 function shadeHex(hex, amount = -22) { const clean = String(hex || '').replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(clean)) return DEFAULT_THEME.accent; const value = Number.parseInt(clean, 16); const channel = shift => Math.max(0, Math.min(255, shift + amount)); return `#${[value >> 16, value >> 8 & 255, value & 255].map(channel => channel.toString(16).padStart(2, '0')).join('')}`; }
 function applyTheme(theme = data.settings.theme || DEFAULT_THEME) { const root = document.documentElement; root.style.setProperty('--accent', theme.accent || DEFAULT_THEME.accent); root.style.setProperty('--accent-hover', shadeHex(theme.accent || DEFAULT_THEME.accent)); root.style.setProperty('--warm', theme.warm || DEFAULT_THEME.warm); root.style.setProperty('--bg', theme.background || DEFAULT_THEME.background); }
 applyTheme();
@@ -275,7 +278,7 @@ function renderTrip(id) {
   const canQuickCheck = isUpcoming(trip);
   const travelDetails = trip.travelScope === 'domestic' ? `<div><span>旅遊類型</span><b>國內旅遊</b></div><div><span>主要交通</span><b>${escapeHtml([trip.domesticTransport, trip.transportDetail].filter(Boolean).join(' · ') || '尚未填寫')}</b></div>` : `<div><span>出國航班</span><b>${escapeHtml([trip.airline, trip.flight].filter(Boolean).join(' ') || '尚未填寫')}</b></div><div><span>回國航班</span><b>${escapeHtml([trip.sameReturnAirline ? trip.airline : trip.returnAirline, trip.returnFlight].filter(Boolean).join(' ') || '尚未填寫')}</b></div>`;
   const expenseContent = trip.expenses.length ? `${expenseChartMarkup(trip, gross, personal)}${expenseListMarkup(trip)}` : emptyState('還沒有支出紀錄', '記下每日住宿、交通與餐飲，預算會更清楚。', false);
-  const topActions = `<button class="button button-ghost" data-action="print-trip" data-id="${escapeHtml(trip.id)}">匯出 PDF</button><button class="button button-ghost" data-action="share-trip" data-id="${escapeHtml(trip.id)}">分享唯讀連結</button>`;
+  const topActions = `<button class="button button-ghost" data-action="print-trip" data-id="${escapeHtml(trip.id)}">匯出 PDF</button><button class="button button-ghost" data-action="share-trip" data-id="${escapeHtml(trip.id)}">分享旅程</button>`;
   app.innerHTML = `${pageBack(topActions)}<section class="trip-hero"><div class="trip-hero-copy"><p class="eyebrow">Trip record</p><div class="record-row"><h1>${escapeHtml(trip.title)}</h1>${isRecordComplete(trip) ? '' : '<span class="record-state">待完成記錄</span>'}</div><p class="route-large">${escapeHtml(routeText(trip))}</p><div class="detail-grid"><div class="detail-date-row"><div><span>旅行日期</span><b>${formatDate(trip.start)}－${formatDate(trip.end)}</b></div><div><span>旅行天數</span><b>${tripDays(trip)}</b></div></div>${travelDetails}<div><span>同行</span><b>${escapeHtml(trip.companions || `${trip.people || 1} 人`)}</b></div><div><span>預算</span><b>${trip.budget ? escapeHtml(tripMoney(trip, trip.budget)) : '尚未設定'}</b></div><div class="detail-status"><span>狀態</span><b>${escapeHtml(trip.status || '規劃中')}</b></div></div></div><div class="trip-hero-image" role="img" aria-label="${escapeHtml(trip.country)}旅行風景" style="--trip-image:url('${tripImage(trip)}');--fallback:${destination.color}"></div></section>
   <div class="trip-record-actions trip-content-tabs" role="tablist" aria-label="旅程內容"><button class="button active" type="button" role="tab" aria-selected="true" aria-controls="trip-itinerary" data-trip-tab="itinerary">每日行程</button><button class="button" type="button" role="tab" aria-selected="false" aria-controls="trip-expenses" data-trip-tab="expenses">旅行支出</button><button class="button" type="button" role="tab" aria-selected="false" aria-controls="trip-checklist" data-trip-tab="checklist">準備清單</button></div>
   <div class="trip-tab-panels"><section class="section trip-tab-panel" id="trip-itinerary" data-trip-panel="itinerary" role="tabpanel"><div class="section-head"><div><p class="eyebrow">Itinerary</p><h2>每日行程</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="itinerary">編輯</button></div>${trip.planDays.length ? `<div class="day-list">${trip.planDays.map(day => `<article class="day-card"><button class="day-date" type="button" data-toggle-trip-day aria-expanded="true"><span>${escapeHtml(formatDate(day.date, { month: 'short', day: 'numeric', weekday: 'short' }))}</span><span class="day-date-meta"><b>${day.items.length} 個行程</b><i aria-hidden="true">⌃</i></span></button><div class="day-items">${sortPlanItems(day.items).map(item => `<div class="timeline-item"><time>${escapeHtml(item.time || '未定')}</time><div><h3>${escapeHtml(item.activity || '未命名行程')}</h3><p class="transport preserve-lines">${escapeHtml(item.transport || '交通未定')}</p>${item.map ? `<a href="${escapeHtml(item.map)}" target="_blank" rel="noopener">開啟地圖 ↗</a>` : ''}</div><p class="preserve-lines">${linkifyText(item.note)}</p></div>`).join('')}</div></article>`).join('')}</div>` : emptyState('還沒有安排行程', '可以先記下最期待的一個地方。', false)}</section>
@@ -286,7 +289,7 @@ function renderTrip(id) {
 function loadShareRecords() {
   try {
     const records = JSON.parse(localStorage.getItem(SHARE_RECORDS_STORAGE) || '[]');
-    return Array.isArray(records) ? records.filter(record => record?.id && record?.deleteToken) : [];
+    return Array.isArray(records) ? records.filter(record => record?.id && record?.deleteToken).map(record => ({ ...record, version: Number(record.version) || 1, updatedAt: Number(record.updatedAt) || Number(record.createdAt) || 0 })) : [];
   } catch { return []; }
 }
 
@@ -296,6 +299,10 @@ function saveShareRecords(records) {
 
 function onlineShareUrl(id) {
   const url = new URL(PUBLIC_SITE_URL); url.hash = `share/${id}`; return url.href;
+}
+
+function collaborationUrl(id, editToken) {
+  const url = new URL(PUBLIC_SITE_URL); url.hash = `collab/${id}/${editToken}`; return url.href;
 }
 
 function shareExpiryText(expiresAt) {
@@ -311,8 +318,11 @@ function shareExpiryDate(expiresAt) {
 
 function shareSettingsCard() {
   const records = loadShareRecords(); const hasAdminKey = Boolean(localStorage.getItem(SHARE_KEY_STORAGE));
-  const list = records.length ? records.map(record => { const expired = Number(record.expiresAt) <= Date.now(); return `<article class="share-record ${expired ? 'is-expired' : ''}"><div><strong>${escapeHtml(record.title || '未命名旅程')}</strong><p>${escapeHtml(shareExpiryText(record.expiresAt))} · ${escapeHtml(shareExpiryDate(record.expiresAt))}</p></div><div class="share-record-actions"><button class="button button-soft" type="button" data-copy-share="${escapeHtml(record.id)}">複製連結</button><a class="button button-ghost" href="${escapeHtml(onlineShareUrl(record.id))}" target="_blank" rel="noopener">開啟</a><button class="button button-danger" type="button" data-revoke-share="${escapeHtml(record.id)}">${expired ? '移除紀錄' : '撤銷'}</button></div></article>`; }).join('') : '<div class="empty compact-empty"><h3>目前沒有分享紀錄</h3><p>從旅程內頁建立唯讀分享後，可以在這裡複製或撤銷。</p></div>';
-  return `<article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>線上唯讀分享</h2><p>任何人都能透過人機驗證建立短連結。每條連結保留 30 天，建立者可在這個裝置撤銷自己的分享。</p></div><span class="connection-state is-ready">公開分享模式</span></div><div class="share-record-list">${list}</div><details class="admin-share-settings"><summary>網站管理者工具</summary><p class="helper">一般使用者不需要輸入。網站管理者密碼可用於連線檢查及未來的進階管理。</p><form id="share-settings"><div class="share-settings-row"><label>管理者密碼<input name="shareKey" type="password" autocomplete="new-password" placeholder="${hasAdminKey ? '輸入新密碼可更新' : '輸入 Cloudflare SHARE_WRITE_KEY'}"></label><button class="button button-primary" type="submit">儲存並測試</button><button class="button button-ghost" type="button" data-clear-share-key ${hasAdminKey ? '' : 'disabled'}>清除此裝置密碼</button></div></form></details></article>`;
+  const list = records.length ? records.map(record => {
+    const expired = Number(record.expiresAt) <= Date.now(); const canEdit = Boolean(record.editToken);
+    return `<article class="share-record ${expired ? 'is-expired' : ''}"><div><strong>${escapeHtml(record.title || '未命名旅程')}</strong><p>${escapeHtml(shareExpiryText(record.expiresAt))} · ${escapeHtml(shareExpiryDate(record.expiresAt))}${canEdit ? ` · 已同步 v${record.version}` : ' · 舊版唯讀分享'}</p></div><div class="share-record-actions"><button class="button button-soft" type="button" data-copy-share="${escapeHtml(record.id)}">複製唯讀</button><button class="button button-soft" type="button" data-copy-collab="${escapeHtml(record.id)}" ${canEdit && !expired ? '' : 'disabled'}>複製協作</button><a class="button button-ghost" href="${escapeHtml(onlineShareUrl(record.id))}" target="_blank" rel="noopener">開啟</a><button class="button button-danger" type="button" data-revoke-share="${escapeHtml(record.id)}">${expired ? '移除紀錄' : '撤銷'}</button></div></article>`;
+  }).join('') : '<div class="empty compact-empty"><h3>目前沒有分享紀錄</h3><p>從旅程內頁建立分享後，可以在這裡複製唯讀／協作連結或撤銷權限。</p></div>';
+  return `<article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>線上同步分享</h2><p>唯讀與協作連結會指向同一趟雲端旅程；儲存修改後，其他裝置會在數秒內取得最新版。每組連結保留 30 天。</p></div><span class="connection-state is-ready">同步分享模式</span></div><div class="share-record-list">${list}</div><details class="admin-share-settings"><summary>網站管理者工具</summary><p class="helper">一般使用者不需要輸入。網站管理者密碼只用於連線檢查與進階管理。</p><form id="share-settings"><div class="share-settings-row"><label>管理者密碼<input name="shareKey" type="password" autocomplete="new-password" placeholder="${hasAdminKey ? '輸入新密碼可更新' : '輸入 Cloudflare SHARE_WRITE_KEY'}"></label><button class="button button-primary" type="submit">儲存並測試</button><button class="button button-ghost" type="button" data-clear-share-key ${hasAdminKey ? '' : 'disabled'}>清除此裝置密碼</button></div></form></details></article>`;
 }
 
 function renderSettings(selectedCountry = Object.keys(data.settings.countries)[0], selectedAirport = airportCode(data.settings.originAirports[0])) {
@@ -334,8 +344,8 @@ function renderNotFound() { app.innerHTML = `${pageBack()}<section class="page-i
 
 function route() {
   const hash = decodeURIComponent(location.hash.slice(1) || 'home'); const [page, ...rest] = hash.split('/');
-  clearInterval(homeCountdownTimer); activeSharedImport = null; document.body.classList.remove('readonly-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
-  if (page === 'home' || page === 'knowledge') renderHome(); else if (page === 'country' && rest[0]) renderCountry(rest[0]); else if (page === 'trip' && rest[0]) renderTrip(rest.join('/')); else if (page === 'share' && rest[0]) renderSharedTrip(rest.join('/')); else if (page === 'settings') renderSettings(); else renderNotFound();
+  clearInterval(homeCountdownTimer); clearInterval(shareRefreshTimer); shareRefreshTimer = null; activeSharedImport = null; activeCollaboration = null; document.body.classList.remove('readonly-share', 'collaborative-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
+  if (page === 'home' || page === 'knowledge') renderHome(); else if (page === 'country' && rest[0]) renderCountry(rest[0]); else if (page === 'trip' && rest[0]) renderTrip(rest.join('/')); else if (page === 'share' && rest[0]) renderSharedTrip(rest.join('/')); else if (page === 'collab' && rest[0] && rest[1]) renderCollaborativeTrip(rest[0], rest[1]); else if (page === 'settings') renderSettings(); else renderNotFound();
   if (page === 'knowledge') requestAnimationFrame(() => document.querySelector('#notes')?.scrollIntoView()); else window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
@@ -549,13 +559,24 @@ function gatherExpenses() {
 }
 function gatherChecklist() { return [...modalContent.querySelectorAll('.check-group-editor')].map(group => ({ category: group.querySelector('.check-category').value.trim() || '其他', items: [...group.querySelectorAll('.check-edit')].map(row => ({ checked: row.querySelector('[type="checkbox"]').checked, name: row.querySelector('[type="text"]').value.trim() })).filter(item => item.name) })).filter(group => group.items.length); }
 
-function saveTrip(event, id, replacing) {
+async function saveTrip(event, id, replacing) {
   event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form));
   if (values.start && values.end && new Date(values.end) < new Date(values.start)) { const end = form.querySelector('[name="end"]'); end.setCustomValidity('結束時間需晚於開始時間'); end.reportValidity(); switchEditorTab('overview'); return; }
   if (!data.settings.countries[values.country]) { data.settings.countries[values.country] = { emoji: '🌍', color: '#4f665b', image: '', cities: [], airports: [] }; }
   const trip = normalizeTrip({ ...values, id, sameReturnAirline: form.elements.sameReturnAirline.checked, returnAirline: form.elements.sameReturnAirline.checked ? values.airline : values.returnAirline, cities: [...form.querySelectorAll('#city-chips input:checked')].map(input => input.value), planDays: gatherPlanDays(), expenses: gatherExpenses(), checklist: gatherChecklist() }, data.settings);
+  const submit = modalContent.querySelector('[type="submit"][form="trip-form"]'); if (submit) { submit.disabled = true; submit.textContent = activeCollaboration ? '同步中…' : '儲存中…'; }
+  if (activeCollaboration?.tripId === trip.id) {
+    try { await syncActiveCollaboration(trip); }
+    catch (error) { alert(error.status === 409 ? `${error.message}\n\n為避免覆蓋別人的修改，請關閉編輯視窗後按「重新載入」，再重新編輯。` : `無法同步協作旅程：${error.message}`); if (submit) { submit.disabled = false; submit.textContent = '儲存旅程'; } return; }
+  }
   if (replacing) data.trips = data.trips.map(item => item.id === id ? trip : item); else data.trips.push(trip);
-  if (!saveData()) return; modal.close(); showToast('旅程已儲存'); location.hash = `trip/${encodeURIComponent(trip.id)}`; route();
+  if (!saveData()) { if (submit) { submit.disabled = false; submit.textContent = '儲存旅程'; } return; }
+  modal.close();
+  if (activeCollaboration?.tripId === trip.id) { showToast('修改已同步至所有分享連結'); await renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); return; }
+  const linked = loadShareRecords().some(record => record.tripId === trip.id && record.editToken && Number(record.expiresAt) > Date.now());
+  if (linked) { showToast('旅程已儲存，正在同步分享…'); const result = await syncTripShares(trip); showToast(result.conflicts ? '本機已儲存，但雲端有較新的版本' : result.failed ? '本機已儲存，部分分享同步失敗' : '旅程與分享連結已同步'); }
+  else showToast('旅程已儲存');
+  location.hash = `trip/${encodeURIComponent(trip.id)}`; route();
 }
 
 async function deleteTrip(trip) { if (!await confirmDeletion(`確定要刪除「${trip.title}」嗎？這趟旅程的行程、支出與清單也會一併移除。`, '刪除整趟旅程')) return; data.trips = data.trips.filter(item => item.id !== trip.id); saveData(); modal.close(); showToast('旅程已刪除'); location.hash = 'home'; route(); }
@@ -647,7 +668,7 @@ async function requestTurnstileToken() {
       if (widgetId !== undefined) turnstile.remove(widgetId);
       modal.close(); error ? reject(error) : resolve(token);
     };
-    modalFrame('建立唯讀分享', '<div class="turnstile-prompt"><p>完成快速驗證後，系統會建立有效 30 天的唯讀連結。</p><div id="share-turnstile"></div><p class="helper">建立後可在「網站設定」查看到期時間或提前撤銷。</p></div>', '<div class="modal-foot"><div class="modal-foot-right"><button class="button button-ghost" type="button" data-cancel-share>取消</button></div></div>');
+    modalFrame('建立同步分享', '<div class="turnstile-prompt"><p>完成快速驗證後，系統會建立有效 30 天的唯讀與協作連結。</p><div id="share-turnstile"></div><p class="helper">建立後可在「網站設定」複製連結或提前撤銷。</p></div>', '<div class="modal-foot"><div class="modal-foot-right"><button class="button button-ghost" type="button" data-cancel-share>取消</button></div></div>');
     modalContent.querySelectorAll('[data-close], [data-cancel-share]').forEach(button => button.addEventListener('click', () => finish(new DOMException('已取消分享', 'AbortError'))));
     try {
       widgetId = turnstile.render('#share-turnstile', { sitekey: TURNSTILE_SITE_KEY, action: 'create_share', theme: 'auto', appearance: 'interaction-only', callback: token => finish(null, token), 'error-callback': () => finish(new Error('人機驗證載入失敗，請重新嘗試')) });
@@ -661,7 +682,7 @@ async function shareApiRequest(path, options = {}) {
   catch { throw new Error('無法連線至線上分享服務，請檢查網路後再試'); }
   let result = {};
   try { result = await response.json(); } catch { /* 使用下方的通用錯誤 */ }
-  if (!response.ok) throw new Error(result.error || `分享服務發生錯誤（${response.status}）`);
+  if (!response.ok) { const error = new Error(result.error || `分享服務發生錯誤（${response.status}）`); error.status = response.status; error.details = result; throw error; }
   return result;
 }
 
@@ -681,19 +702,59 @@ async function loadOnlineShare(id) {
   return shareApiRequest(`/shares/${encodeURIComponent(id)}`);
 }
 
+async function updateOnlineShare(record, trip) {
+  return shareApiRequest(`/shares/${encodeURIComponent(record.id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Edit-Token': record.editToken },
+    body: JSON.stringify({ payload: createSharePayload(trip), version: Number(record.version) || 1 })
+  });
+}
+
 function rememberShare(trip, result) {
   const records = loadShareRecords().filter(record => record.id !== result.id);
-  records.unshift({ id: result.id, title: trip.title, expiresAt: result.expiresAt, deleteToken: result.deleteToken, createdAt: Date.now() });
+  records.unshift({ id: result.id, tripId: trip.id, title: trip.title, expiresAt: result.expiresAt, deleteToken: result.deleteToken, editToken: result.editToken, version: result.version || 1, updatedAt: result.updatedAt || Date.now(), createdAt: Date.now() });
   saveShareRecords(records);
+}
+
+function updateRememberedShare(id, updates) {
+  const records = loadShareRecords(); const index = records.findIndex(record => record.id === id);
+  if (index < 0) return;
+  records[index] = { ...records[index], ...updates }; saveShareRecords(records);
+}
+
+async function syncTripShares(trip, { quiet = false } = {}) {
+  const records = loadShareRecords(); const linked = records.filter(record => record.tripId === trip.id && record.editToken && Number(record.expiresAt) > Date.now());
+  if (!linked.length) return { synced: 0, conflicts: 0, failed: 0 };
+  let synced = 0; let conflicts = 0; let failed = 0;
+  for (const record of linked) {
+    try {
+      const result = await updateOnlineShare(record, trip);
+      Object.assign(record, { title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: result.expiresAt || record.expiresAt }); synced += 1;
+    } catch (error) {
+      if (error.status === 409) { conflicts += 1; Object.assign(record, { version: error.details?.version || record.version, updatedAt: error.details?.updatedAt || record.updatedAt }); }
+      else { failed += 1; if (!quiet) alert(`旅程已儲存在這台裝置，但雲端同步失敗：${error.message}`); }
+    }
+  }
+  saveShareRecords(records);
+  if (conflicts && !quiet) alert('雲端版本已被其他裝置更新，因此沒有覆蓋對方的內容。請開啟協作連結確認最新版後再編輯。');
+  return { synced, conflicts, failed };
+}
+
+async function syncActiveCollaboration(trip) {
+  if (!activeCollaboration || activeCollaboration.tripId !== trip.id) return null;
+  const result = await updateOnlineShare(activeCollaboration, trip);
+  Object.assign(activeCollaboration, { version: result.version, updatedAt: result.updatedAt, expiresAt: result.expiresAt || activeCollaboration.expiresAt });
+  updateRememberedShare(activeCollaboration.id, { tripId: trip.id, title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: activeCollaboration.expiresAt });
+  return result;
 }
 
 async function revokeShare(id) {
   const records = loadShareRecords(); const record = records.find(item => item.id === id); if (!record) return;
   if (Number(record.expiresAt) <= Date.now()) { saveShareRecords(records.filter(item => item.id !== id)); renderSettings(); showToast('已移除本機的過期紀錄'); return; }
-  if (!await confirmDeletion(`確定要撤銷「${record.title || '這份旅程'}」的唯讀連結嗎？撤銷後，收到連結的人將無法再開啟。`, '撤銷分享連結')) return;
+  if (!await confirmDeletion(`確定要撤銷「${record.title || '這份旅程'}」的唯讀與協作連結嗎？撤銷後，收到連結的人都將無法再開啟。`, '撤銷分享連結')) return;
   try {
     await shareApiRequest(`/shares/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'X-Delete-Token': record.deleteToken } });
-    saveShareRecords(records.filter(item => item.id !== id)); renderSettings(); showToast('唯讀連結已撤銷');
+    saveShareRecords(records.filter(item => item.id !== id)); renderSettings(); showToast('分享與協作權限已撤銷');
   } catch (error) { alert(`無法撤銷分享：${error.message}`); }
 }
 
@@ -717,17 +778,38 @@ function expandSharePayload(payload) {
     country: { emoji: payload.c[0], color: payload.c[1], image: payload.c[2], cities: [], airports: [] }, theme: { accent: payload.h[0], warm: payload.h[1], background: payload.h[2] } };
 }
 
+function sharedTripBundle(storedPayload) {
+  const payload = expandSharePayload(storedPayload);
+  if (payload?.version !== 1 || !payload.trip || typeof payload.trip !== 'object' || !payload.trip.country) throw new Error('分享資料格式不正確');
+  const countryName = String(payload.trip.country); const sharedSettings = normalizeSettings({ countries: { [countryName]: payload.country || {} }, theme: payload.theme || DEFAULT_THEME });
+  sharedSettings.countries[countryName].image = shareableImage(sharedSettings.countries[countryName].image); sharedSettings.countries[countryName].color = normalizeHex(sharedSettings.countries[countryName].color, '#4f665b');
+  const sharedTrip = normalizeTrip(payload.trip, sharedSettings); sharedTrip.coverImage = shareableImage(sharedTrip.coverImage);
+  return { sharedTrip, sharedSettings, countryName };
+}
+
+function startShareRefresh(mode, id, token, version) {
+  clearInterval(shareRefreshTimer); let knownVersion = Number(version) || 1; let checking = false;
+  shareRefreshTimer = setInterval(async () => {
+    if (checking || modal.open || confirmDialog.open) return;
+    checking = true;
+    try {
+      const latest = await loadOnlineShare(id);
+      if ((Number(latest.version) || 1) > knownVersion) {
+        knownVersion = Number(latest.version) || knownVersion;
+        if (mode === 'readonly') await renderSharedTrip(id); else await renderCollaborativeTrip(id, token);
+      }
+    } catch (error) { if ([404, 410].includes(error.status)) { clearInterval(shareRefreshTimer); showToast(error.message); } }
+    finally { checking = false; }
+  }, SHARE_REFRESH_INTERVAL);
+}
+
 async function renderSharedTrip(token) {
-  app.innerHTML = '<section class="page-intro"><div class="empty"><h3>正在開啟唯讀旅程…</h3></div></section>';
+  clearInterval(shareRefreshTimer); app.innerHTML = '<section class="page-intro"><div class="empty"><h3>正在開啟唯讀旅程…</h3></div></section>';
   try {
     const onlineShare = token.startsWith('s_') ? await loadOnlineShare(token) : null;
     const storedPayload = onlineShare ? onlineShare.payload : await decodeSharePayload(token);
-    const payload = expandSharePayload(storedPayload);
+    const { sharedTrip, sharedSettings, countryName } = sharedTripBundle(storedPayload);
     if (decodeURIComponent(location.hash.slice(1)) !== `share/${token}`) return;
-    if (payload?.version !== 1 || !payload.trip || typeof payload.trip !== 'object' || !payload.trip.country) throw new Error('分享資料格式不正確');
-    const countryName = String(payload.trip.country); const sharedSettings = normalizeSettings({ countries: { [countryName]: payload.country || {} }, theme: payload.theme || DEFAULT_THEME });
-    sharedSettings.countries[countryName].image = shareableImage(sharedSettings.countries[countryName].image); sharedSettings.countries[countryName].color = normalizeHex(sharedSettings.countries[countryName].color, '#4f665b');
-    const sharedTrip = normalizeTrip(payload.trip, sharedSettings); sharedTrip.coverImage = shareableImage(sharedTrip.coverImage);
     activeSharedImport = { trip: clone(sharedTrip), country: clone(sharedSettings.countries[countryName]) };
     const originalData = data;
     try { data = { version: 3, settings: sharedSettings, trips: [sharedTrip], countryNotes: {}, notes: [] }; renderTrip(sharedTrip.id); } finally { data = originalData; }
@@ -735,10 +817,30 @@ async function renderSharedTrip(token) {
     app.querySelectorAll('button:not([data-toggle-trip-day]):not([data-trip-tab]), .page-back').forEach(element => element.remove());
     app.querySelectorAll('input').forEach(input => { input.disabled = true; input.removeAttribute('data-quick-check'); });
     app.querySelectorAll('.section').forEach(section => { if (section.querySelector('h2')?.textContent === '旅程準備清單') { const copy = section.querySelector('.section-copy'); if (copy) copy.textContent = `已完成 ${sharedTrip.checklist.flatMap(group => group.items).filter(item => item.checked).length}／${sharedTrip.checklist.flatMap(group => group.items).length} 項`; } });
-    const expiry = onlineShare?.expiresAt ? `此連結將於 ${shareExpiryDate(onlineShare.expiresAt)} 到期。` : '此頁僅供查看，內容無法編輯。';
-    app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner"><div class="readonly-share-message"><strong>唯讀旅程</strong><span>${escapeHtml(expiry)} 內容無法編輯。</span></div><button class="button button-primary" type="button" data-action="import-shared-trip">加入我的旅程</button></div>`);
+    const expiry = onlineShare?.expiresAt ? `有效至 ${shareExpiryDate(onlineShare.expiresAt)}，內容每 5 秒同步。` : '此頁僅供查看，內容無法編輯。';
+    app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner"><div class="readonly-share-message"><strong>同步唯讀旅程</strong><span>${escapeHtml(expiry)}</span></div><button class="button button-primary" type="button" data-action="import-shared-trip">加入我的旅程</button></div>`);
+    if (onlineShare) startShareRefresh('readonly', token, '', onlineShare.version);
   } catch (error) {
     document.body.classList.add('readonly-share'); app.innerHTML = `<section class="page-intro">${emptyState('無法開啟這份旅程', error.message || '連結可能不完整、已過期或已損壞。', false)}</section>`;
+  }
+}
+
+async function renderCollaborativeTrip(id, editToken) {
+  clearInterval(shareRefreshTimer); app.innerHTML = '<section class="page-intro"><div class="empty"><h3>正在開啟協作旅程…</h3></div></section>';
+  try {
+    const onlineShare = await loadOnlineShare(id); const { sharedTrip, sharedSettings, countryName } = sharedTripBundle(onlineShare.payload);
+    if (decodeURIComponent(location.hash.slice(1)) !== `collab/${id}/${editToken}`) return;
+    const incomingCountry = sharedSettings.countries[countryName]; const localCountry = data.settings.countries[countryName];
+    data.settings.countries[countryName] = localCountry ? { ...localCountry, cities: [...new Set([...localCountry.cities, ...sharedTrip.cities])] } : { ...incomingCountry, cities: [...new Set([...incomingCountry.cities, ...sharedTrip.cities])] };
+    data.trips = [...data.trips.filter(item => item.id !== sharedTrip.id), sharedTrip]; saveData();
+    activeCollaboration = { id, editToken, tripId: sharedTrip.id, version: Number(onlineShare.version) || 1, updatedAt: Number(onlineShare.updatedAt) || 0, expiresAt: Number(onlineShare.expiresAt) || 0 };
+    updateRememberedShare(id, { tripId: sharedTrip.id, title: sharedTrip.title, version: activeCollaboration.version, updatedAt: activeCollaboration.updatedAt });
+    renderTrip(sharedTrip.id); document.body.classList.add('collaborative-share'); document.title = `${sharedTrip.title}－協作旅程`;
+    app.querySelector('.page-back')?.remove();
+    app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner collaboration-banner"><div class="readonly-share-message"><strong>協作編輯中</strong><span>修改會同步到同一趟旅程；其他裝置每 5 秒取得最新版。版本 ${activeCollaboration.version}${activeCollaboration.updatedAt ? ` · ${escapeHtml(shareExpiryDate(activeCollaboration.updatedAt))} 更新` : ''}</span></div><button class="button button-soft" type="button" data-action="reload-collab">重新載入</button></div>`);
+    startShareRefresh('collab', id, editToken, activeCollaboration.version);
+  } catch (error) {
+    document.body.classList.add('collaborative-share'); app.innerHTML = `<section class="page-intro">${emptyState('無法開啟協作旅程', error.message || '協作連結可能不完整、已過期或已撤銷。', false)}</section>`;
   }
 }
 
@@ -765,21 +867,28 @@ function importSharedTrip() {
 }
 
 async function copyShareUrl(url) {
-  try { await navigator.clipboard.writeText(url); return true; } catch { window.prompt('請複製以下唯讀連結', url); return false; }
+  try { await navigator.clipboard.writeText(url); return true; } catch { window.prompt('請複製以下連結', url); return false; }
 }
 
-async function shareReadonlyTrip(id) {
+function openShareLinks(trip, record) {
+  const readUrl = onlineShareUrl(record.id); const editUrl = collaborationUrl(record.id, record.editToken);
+  modalFrame('分享與同步旅程', `<div class="share-link-options"><section><div><strong>唯讀連結</strong><p>對方只能查看；你日後儲存修改，這條連結會自動顯示最新版。</p></div><div class="share-link-row"><input value="${escapeHtml(readUrl)}" readonly aria-label="唯讀連結"><button class="button button-primary" type="button" data-copy-link="readonly">複製</button></div></section><section><div><strong>協作編輯連結</strong><p>持有連結的人可以直接修改同一趟旅程，請只傳給信任的人。</p></div><div class="share-link-row"><input value="${escapeHtml(editUrl)}" readonly aria-label="協作編輯連結"><button class="button button-primary" type="button" data-copy-link="collab">複製</button></div></section><p class="share-security-note">兩條連結有效至 ${escapeHtml(shareExpiryDate(record.expiresAt))}。你可以到「網站設定」隨時撤銷；撤銷後兩條連結都會失效。</p></div>`, '<div class="modal-foot"><div class="modal-foot-right"><button class="button button-ghost" type="button" data-close-share>完成</button></div></div>');
+  modalContent.querySelector('[data-close-share]').addEventListener('click', () => modal.close());
+  modalContent.querySelectorAll('[data-copy-link]').forEach(button => button.addEventListener('click', async () => { await copyShareUrl(button.dataset.copyLink === 'collab' ? editUrl : readUrl); showToast(button.dataset.copyLink === 'collab' ? '協作編輯連結已複製' : '唯讀連結已複製'); }));
+}
+
+async function shareTrip(id) {
   const trip = data.trips.find(item => item.id === id); if (!trip) return;
   try {
+    const existing = loadShareRecords().find(record => record.tripId === trip.id && record.editToken && Number(record.expiresAt) > Date.now());
+    if (existing) {
+      const result = await updateOnlineShare(existing, trip);
+      const record = { ...existing, title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: result.expiresAt || existing.expiresAt };
+      updateRememberedShare(existing.id, record); openShareLinks(trip, record); return;
+    }
     const turnstileToken = await requestTurnstileToken();
     const result = await createOnlineShare(trip, turnstileToken); rememberShare(trip, result);
-    const url = new URL(onlineShareUrl(result.id));
-    if (navigator.share) {
-      try { await navigator.share({ title: `${trip.title}｜唯讀旅程`, text: `查看這趟旅程的行程記錄（有效至 ${shareExpiryDate(result.expiresAt)}）`, url: url.href }); showToast(`唯讀連結已建立，有效至 ${shareExpiryDate(result.expiresAt)}`); return; }
-      catch (error) { if (error.name !== 'AbortError') throw error; }
-    }
-    await copyShareUrl(url.href);
-    showToast(`短版連結已複製，有效至 ${shareExpiryDate(result.expiresAt)}`);
+    openShareLinks(trip, { ...result, tripId: trip.id, title: trip.title });
   } catch (error) { if (error.name !== 'AbortError') alert(`無法分享旅程：${error.message}`); }
 }
 
@@ -787,7 +896,7 @@ function backupData() { const blob = new Blob([JSON.stringify(data, null, 2)], {
 async function importData() { const file = fileInput.files[0]; if (!file) return; try { const imported = normalizeData(JSON.parse(await file.text())); if (!confirm(`將匯入 ${imported.trips.length} 趟旅程並取代目前資料，確定繼續嗎？`)) return; data = imported; saveData(); route(); showToast('資料匯入完成'); } catch (error) { alert(`無法匯入檔案：${error.message}`); } finally { fileInput.value = ''; } }
 
 app.addEventListener('submit', event => { if (event.target.closest('.settings-grid')) { event.preventDefault(); bindSettingsSubmit(event.target); } });
-app.addEventListener('change', event => {
+app.addEventListener('change', async event => {
   if (event.target.id === 'settings-country') renderSettings(event.target.value);
   if (event.target.id === 'airline-airport') renderSettings(undefined, event.target.value);
   if (event.target.matches('[data-quick-check]')) {
@@ -795,7 +904,17 @@ app.addEventListener('change', event => {
     if (!trip || !isUpcoming(trip)) { renderTrip(event.target.dataset.tripId); return; }
     const item = trip.checklist[Number(event.target.dataset.groupIndex)]?.items[Number(event.target.dataset.itemIndex)];
     if (!item) return;
-    item.checked = event.target.checked; saveData(); renderTrip(trip.id); switchTripContentTab('checklist'); showToast(event.target.checked ? '已標記為完成' : '已取消完成');
+    const previous = item.checked; item.checked = event.target.checked;
+    if (activeCollaboration?.tripId === trip.id) {
+      try { await syncActiveCollaboration(trip); }
+      catch (error) { item.checked = previous; event.target.checked = previous; alert(error.status === 409 ? '其他裝置已更新這趟旅程，請重新載入後再勾選。' : `無法同步：${error.message}`); return; }
+    }
+    saveData();
+    const syncResult = activeCollaboration ? null : await syncTripShares(trip, { quiet: true });
+    if (activeCollaboration) await renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); else { renderTrip(trip.id); switchTripContentTab('checklist'); }
+    if (syncResult?.conflicts) showToast('本機已更新，但雲端已有較新版本');
+    else if (syncResult?.failed) showToast('本機已更新，雲端同步暫時失敗');
+    else showToast(event.target.checked ? '已標記為完成並同步' : '已取消完成並同步');
   }
 });
 app.addEventListener('click', event => {
@@ -805,8 +924,9 @@ app.addEventListener('click', event => {
   if (target.dataset.scrollTarget) { document.querySelector(`#${target.dataset.scrollTarget}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   if (action === 'back') { if (history.length > 1) history.back(); else location.hash = 'home'; return; }
   if (action === 'import-shared-trip') { openSharedImportConfirmation(); return; }
+  if (action === 'reload-collab' && activeCollaboration) { renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); return; }
   if (action === 'new') openTripEditor('', country || ''); if (action === 'edit') openTripEditor(id, '', tab || 'overview');
-  if (action === 'print-trip') exportTripPdf(id); if (action === 'share-trip') shareReadonlyTrip(id);
+  if (action === 'print-trip') exportTripPdf(id); if (action === 'share-trip') shareTrip(id);
   if (target.matches('[data-country]:not([data-action]):not([data-city])')) location.hash = `country/${encodeURIComponent(country)}`; if (target.matches('[data-city]')) renderCountry(country, city);
   if (action === 'read-home-note') openNote('', Number(index)); if (action === 'edit-home-note') openNote('', Number(index), true); if (action === 'read-country-note') openNote(country, Number(index)); if (action === 'edit-country-note') openNote(country, Number(index), true);
   if (target.dataset.carousel) { const carousel = document.querySelector('#country-carousel'); carousel?.scrollBy({ left: (target.dataset.carousel === 'next' ? 1 : -1) * carousel.clientWidth * .82, behavior: 'smooth' }); }
@@ -816,6 +936,7 @@ app.addEventListener('click', event => {
   if (target.matches('[data-reset-theme]')) { data.settings.theme = clone(DEFAULT_THEME); saveData(); applyTheme(); renderSettings(); showToast('已恢復預設配色'); }
   if (target.matches('[data-clear-share-key]')) { localStorage.removeItem(SHARE_KEY_STORAGE); renderSettings(); showToast('已清除此裝置的分享密碼'); }
   if (target.dataset.copyShare) { copyShareUrl(onlineShareUrl(target.dataset.copyShare)).then(() => showToast('唯讀連結已複製')); }
+  if (target.dataset.copyCollab) { const record = loadShareRecords().find(item => item.id === target.dataset.copyCollab); if (record?.editToken) copyShareUrl(collaborationUrl(record.id, record.editToken)).then(() => showToast('協作編輯連結已複製')); }
   if (target.dataset.revokeShare) revokeShare(target.dataset.revokeShare);
   if (target.matches('[data-remove-template]')) { const row = target.closest('.template-row'); const name = row.querySelector('.template-category')?.value.trim() || '這個清單分類'; confirmDeletion(`確定要刪除「${name}」嗎？`, '刪除清單範本').then(confirmed => { if (confirmed) row.remove(); }); }
 });

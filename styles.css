@@ -362,6 +362,13 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .share-record p { margin: 0; color: var(--muted); font-size: 13px; }
 .share-record.is-expired { opacity: .7; }
 .share-record-actions { display: flex; gap: 8px; flex: none; }
+.share-link-options { display: grid; gap: 14px; }
+.share-link-options section { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.share-link-options strong { display: block; margin-bottom: 4px; }
+.share-link-options p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.share-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.share-link-row input { min-width: 0; background: white; }
+.share-security-note { padding: 0 2px; }
 .compact-empty { padding: 24px; }
 .admin-share-settings { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
 .admin-share-settings summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 700; }
@@ -529,8 +536,10 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
   .share-settings-row { grid-template-columns: 1fr; }
   .share-settings-row .button { width: 100%; }
   .share-record { align-items: stretch; flex-direction: column; }
-  .share-record-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  .share-record-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .share-record-actions .button { min-width: 0; padding-inline: 8px; }
+  .share-link-row { grid-template-columns: 1fr; }
+  .share-link-row .button { width: 100%; }
   .day-summary { padding: 13px 14px; }
   .day-summary strong { font-size: 18px; }
   .day-editor-body { padding: 0 10px 10px; }
@@ -561,18 +570,22 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 }
 
 .readonly-share .site-header,
-.readonly-share .site-footer { display: none; }
-.readonly-share main { padding-top: 24px; }
+.readonly-share .site-footer,
+.collaborative-share .site-header,
+.collaborative-share .site-footer { display: none; }
+.readonly-share main,
+.collaborative-share main { padding-top: 24px; }
 .readonly-share-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; padding: 12px 18px; border: 1px solid color-mix(in srgb, var(--accent) 20%, white); border-radius: 14px; background: color-mix(in srgb, var(--accent) 8%, white); color: var(--accent); font-size: 13px; }
 .readonly-share-message { display: flex; align-items: center; gap: 10px; }
 .readonly-share-banner strong { font-size: 14px; }
 .readonly-share-banner .button { flex: none; }
+.collaboration-banner { border-color: color-mix(in srgb, var(--warm) 28%, white); background: color-mix(in srgb, var(--warm) 9%, white); color: color-mix(in srgb, var(--warm) 72%, #34231c); }
 .import-share-copy { display: grid; gap: 8px; }
 .import-share-copy p { margin: 0; }
 .readonly-share .read-check { pointer-events: none; }
 
 @media (max-width: 640px) {
-  .readonly-share main { padding-top: 12px; }
+  .readonly-share main, .collaborative-share main { padding-top: 12px; }
   .readonly-share-banner, .readonly-share-message { align-items: stretch; flex-direction: column; }
   .readonly-share-banner { gap: 12px; margin-bottom: 14px; }
   .readonly-share-message { gap: 2px; }

@@ -40,9 +40,31 @@ python -m http.server 4173
 - 編輯目的地提醒與通用旅行筆記
 - 在網站設定管理國家、城市、機場、航空公司與準備清單範本
 - JSON 匯入與備份
-- Cloudflare Turnstile＋Worker＋D1 公開唯讀短連結（每條連結可獨立撤銷，預設有效 30 天）
+- Cloudflare Turnstile＋Worker＋D1 同步分享：同一趟旅程可產生固定唯讀連結與協作編輯連結，儲存後其他裝置會在 5 秒內取得最新版
+- 協作更新使用獨立編輯權杖與版本衝突保護，避免舊版本直接覆蓋其他裝置的新修改；每組連結可獨立撤銷，預設有效 30 天
 - 唯讀旅程可一鍵匯入目前裝置，建立不與原分享者同步的可編輯副本
 - 桌面與手機版響應式介面
+
+## 部署同步分享更新
+
+本次協作功能新增了 D1 欄位與 Worker API。第一次上線前，請在 `travel-share-api` 資料夾依序執行：
+
+```powershell
+cd "D:\_個人資料\旅遊記錄\travel-share-api"
+npx.cmd wrangler d1 migrations apply travel-share-db --remote
+npm.cmd run deploy
+```
+
+接著將根目錄的前端檔案推送到 GitHub Pages：
+
+```powershell
+cd "D:\_個人資料\旅遊記錄"
+git add app.js styles.css README.md travel-share-api
+git commit -m "Add live trip sharing and collaboration"
+git push
+```
+
+部署完成後，舊的唯讀連結仍可開啟，但不會自動取得協作權杖；請從旅程內頁重新建立一次分享，才會同時取得「唯讀」與「協作編輯」連結。
 
 ## 預設資料說明
 
