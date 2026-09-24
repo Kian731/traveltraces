@@ -135,6 +135,8 @@ let activeExpenseDraft = [];
 let activeSharedImport = null;
 let activeCollaboration = null;
 let activeOwnerSync = null;
+let pendingSharedRefresh = null;
+let activeTripView = { id: '', tab: 'itinerary' };
 let shareRefreshTimer = null;
 function shadeHex(hex, amount = -22) { const clean = String(hex || '').replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(clean)) return DEFAULT_THEME.accent; const value = Number.parseInt(clean, 16); const channel = shift => Math.max(0, Math.min(255, shift + amount)); return `#${[value >> 16, value >> 8 & 255, value & 255].map(channel => channel.toString(16).padStart(2, '0')).join('')}`; }
 function applyTheme(theme = data.settings.theme || DEFAULT_THEME) { const root = document.documentElement; root.style.setProperty('--accent', theme.accent || DEFAULT_THEME.accent); root.style.setProperty('--accent-hover', shadeHex(theme.accent || DEFAULT_THEME.accent)); root.style.setProperty('--warm', theme.warm || DEFAULT_THEME.warm); root.style.setProperty('--bg', theme.background || DEFAULT_THEME.background); }
@@ -268,12 +270,14 @@ function expenseListMarkup(trip) {
 
 function switchTripContentTab(tab) {
   const available = [...app.querySelectorAll('[data-trip-tab]')]; if (!available.some(button => button.dataset.tripTab === tab)) return;
+  activeTripView.tab = tab;
   available.forEach(button => { const active = button.dataset.tripTab === tab; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
   app.querySelectorAll('[data-trip-panel]').forEach(panel => { panel.hidden = panel.dataset.tripPanel !== tab; });
 }
 
 function renderTrip(id) {
   const trip = data.trips.find(item => item.id === id); if (!trip) return renderNotFound();
+  const preferredTab = activeTripView.id === id ? activeTripView.tab : 'itinerary'; activeTripView = { id, tab: preferredTab };
   const destination = countryOf(trip.country); const gross = trip.expenses.reduce((sum, row) => sum + expenseAmount(row), 0); const personal = trip.expenses.reduce((sum, row) => sum + personalExpense(row), 0);
   const checklistItems = trip.checklist.flatMap(group => group.items); const checked = checklistItems.filter(item => item.checked).length;
   const canQuickCheck = isUpcoming(trip);
@@ -285,6 +289,7 @@ function renderTrip(id) {
   <div class="trip-tab-panels"><section class="section trip-tab-panel" id="trip-itinerary" data-trip-panel="itinerary" role="tabpanel"><div class="section-head"><div><p class="eyebrow">Itinerary</p><h2>每日行程</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="itinerary">編輯</button></div>${trip.planDays.length ? `<div class="day-list">${trip.planDays.map(day => `<article class="day-card"><button class="day-date" type="button" data-toggle-trip-day aria-expanded="true"><span>${escapeHtml(formatDate(day.date, { month: 'short', day: 'numeric', weekday: 'short' }))}</span><span class="day-date-meta"><b>${day.items.length} 個行程</b><i aria-hidden="true">⌃</i></span></button><div class="day-items">${sortPlanItems(day.items).map(item => `<div class="timeline-item"><time>${escapeHtml(item.time || '未定')}</time><div><h3>${escapeHtml(item.activity || '未命名行程')}</h3><p class="transport preserve-lines">${escapeHtml(item.transport || '交通未定')}</p>${item.map ? `<a href="${escapeHtml(item.map)}" target="_blank" rel="noopener">開啟地圖 ↗</a>` : ''}</div><p class="preserve-lines">${linkifyText(item.note)}</p></div>`).join('')}</div></article>`).join('')}</div>` : emptyState('還沒有安排行程', '可以先記下最期待的一個地方。', false)}</section>
   <section class="section trip-tab-panel" id="trip-expenses" data-trip-panel="expenses" role="tabpanel" hidden><div class="section-head"><div><p class="eyebrow">Expenses</p><h2>旅行支出</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="expenses">編輯</button></div>${expenseContent}</section>
   <section class="section trip-tab-panel" id="trip-checklist" data-trip-panel="checklist" role="tabpanel" hidden><div class="section-head"><div><p class="eyebrow">Checklist</p><h2>旅程準備清單</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="checklist">編輯</button></div><div class="check-progress"><span style="--progress:${checklistItems.length ? checked / checklistItems.length * 100 : 0}%"></span></div><p class="section-copy">已完成 ${checked}／${checklistItems.length} 項 · ${canQuickCheck ? '可直接勾選更新' : '旅程已結束，請由編輯旅程更新'}</p><div class="checklist-view ${canQuickCheck ? '' : 'locked'}">${trip.checklist.map((group, groupIndex) => `<article><h3>${escapeHtml(group.category)}</h3>${group.items.map((item, itemIndex) => `<label class="read-check"><input type="checkbox" data-quick-check data-trip-id="${escapeHtml(trip.id)}" data-group-index="${groupIndex}" data-item-index="${itemIndex}" ${item.checked ? 'checked' : ''} ${canQuickCheck ? '' : 'disabled'}><span>${escapeHtml(item.name)}</span></label>`).join('')}</article>`).join('')}</div></section></div>`;
+  if (preferredTab !== 'itinerary') switchTripContentTab(preferredTab);
 }
 
 function loadShareRecords() {
@@ -345,7 +350,7 @@ function renderNotFound() { app.innerHTML = `${pageBack()}<section class="page-i
 
 function route() {
   const hash = decodeURIComponent(location.hash.slice(1) || 'home'); const [page, ...rest] = hash.split('/');
-  clearInterval(homeCountdownTimer); clearInterval(shareRefreshTimer); shareRefreshTimer = null; activeSharedImport = null; activeCollaboration = null; activeOwnerSync = null; document.body.classList.remove('readonly-share', 'collaborative-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
+  clearInterval(homeCountdownTimer); clearInterval(shareRefreshTimer); shareRefreshTimer = null; activeSharedImport = null; activeCollaboration = null; activeOwnerSync = null; pendingSharedRefresh = null; document.body.classList.remove('readonly-share', 'collaborative-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
   if (page === 'home' || page === 'knowledge') renderHome(); else if (page === 'country' && rest[0]) renderCountry(rest[0]); else if (page === 'trip' && rest[0]) renderOwnedTrip(rest.join('/')); else if (page === 'share' && rest[0]) renderSharedTrip(rest.join('/')); else if (page === 'collab' && rest[0] && rest[1]) renderCollaborativeTrip(rest[0], rest[1]); else if (page === 'settings') renderSettings(); else renderNotFound();
   if (page === 'knowledge') requestAnimationFrame(() => document.querySelector('#notes')?.scrollIntoView()); else window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -573,11 +578,13 @@ async function saveTrip(event, id, replacing) {
   if (replacing) data.trips = data.trips.map(item => item.id === id ? trip : item); else data.trips.push(trip);
   if (!saveData()) { if (submit) { submit.disabled = false; submit.textContent = '儲存旅程'; } return; }
   modal.close();
-  if (activeCollaboration?.tripId === trip.id) { showToast('修改已同步至所有分享連結'); await renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); return; }
+  if (activeCollaboration?.tripId === trip.id) { showToast('修改已同步至所有分享連結'); await refreshSharedView(() => renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken)); return; }
   const linked = loadShareRecords().some(record => record.tripId === trip.id && record.editToken && Number(record.expiresAt) > Date.now());
   if (linked) { showToast('旅程已儲存，正在同步分享…'); const result = await syncTripShares(trip); showToast(result.conflicts ? '本機已儲存，但雲端有較新的版本' : result.failed ? '本機已儲存，部分分享同步失敗' : '旅程與分享連結已同步'); }
   else showToast('旅程已儲存');
-  location.hash = `trip/${encodeURIComponent(trip.id)}`; route();
+  const nextHash = `trip/${trip.id}`;
+  if (decodeURIComponent(location.hash.slice(1)) === nextHash) await refreshSharedView(() => renderOwnedTrip(trip.id));
+  else location.hash = `trip/${encodeURIComponent(trip.id)}`;
 }
 
 async function deleteTrip(trip) { if (!await confirmDeletion(`確定要刪除「${trip.title}」嗎？這趟旅程的行程、支出與清單也會一併移除。`, '刪除整趟旅程')) return; data.trips = data.trips.filter(item => item.id !== trip.id); saveData(); modal.close(); showToast('旅程已刪除'); location.hash = 'home'; route(); }
@@ -809,11 +816,21 @@ function ownerSyncBanner(record, state = 'ready') {
     ? '<span>本機與雲端都有新修改，為避免覆蓋資料，請選擇要保留的版本。</span>'
     : state === 'offline'
       ? '<span>目前無法連線至雲端，本機資料仍可使用。</span>'
+      : state === 'updated'
+        ? `<span>已在背景收到雲端新版本 · 版本 ${record.version}。目前畫面不會自動重整。</span>`
       : `<span>已連接同一趟雲端旅程 · 版本 ${record.version} · 每 5 秒同步</span>`;
   const actions = state === 'conflict'
     ? '<div class="owner-sync-actions"><button class="button button-soft" type="button" data-action="use-cloud-version">套用雲端版本</button><button class="button button-ghost" type="button" data-action="use-local-version">用本機版本更新雲端</button></div>'
+    : state === 'updated'
+      ? '<button class="button button-primary" type="button" data-action="show-owner-update">顯示最新內容</button>'
     : `<button class="button button-soft" type="button" data-action="sync-owner" data-id="${escapeHtml(record.tripId)}">${state === 'offline' ? '重新連線' : '立即同步'}</button>`;
-  return `<div class="readonly-share-banner owner-sync-banner ${state === 'conflict' ? 'has-conflict' : state === 'offline' ? 'is-offline' : ''}"><div class="readonly-share-message"><strong>${state === 'conflict' ? '同步衝突' : state === 'offline' ? '雲端同步暫停' : '雲端同步中'}</strong>${details}</div>${actions}</div>`;
+  return `<div class="readonly-share-banner owner-sync-banner ${state === 'conflict' ? 'has-conflict' : state === 'offline' ? 'is-offline' : state === 'updated' ? 'has-update' : ''}"><div class="readonly-share-message"><strong>${state === 'conflict' ? '同步衝突' : state === 'offline' ? '雲端同步暫停' : state === 'updated' ? '有新版本' : '雲端同步中'}</strong>${details}</div>${actions}</div>`;
+}
+
+function replaceSyncBanner(selector, markup) {
+  const current = app.querySelector(selector);
+  if (current) current.outerHTML = markup;
+  else app.insertAdjacentHTML('afterbegin', markup);
 }
 
 async function renderOwnedTrip(tripId) {
@@ -828,11 +845,11 @@ async function renderOwnedTrip(tripId) {
     const localChanged = Boolean(baseSignature && localSignature !== baseSignature); const remoteChanged = remoteVersion > Number(record.version) || Boolean(baseSignature && remoteSignature !== baseSignature);
     if (localChanged && remoteChanged && localSignature !== remoteSignature) {
       activeOwnerSync = { record, tripId, onlineShare, conflict: true };
-      renderTrip(tripId); app.insertAdjacentHTML('afterbegin', ownerSyncBanner(record, 'conflict')); return;
+      replaceSyncBanner('.owner-sync-banner', ownerSyncBanner(record, 'conflict')); return;
     }
-    let currentTrip = localTrip; let syncedVersion = remoteVersion; let syncedAt = Number(onlineShare.updatedAt) || record.updatedAt;
+    let currentTrip = localTrip; let contentChanged = false; let syncedVersion = remoteVersion; let syncedAt = Number(onlineShare.updatedAt) || record.updatedAt;
     if (remoteVersion > Number(record.version) || (!localChanged && localSignature !== remoteSignature)) {
-      currentTrip = applyCloudTrip(onlineShare, tripId); showToast('已取得協作者的最新修改');
+      currentTrip = applyCloudTrip(onlineShare, tripId); contentChanged = true; showToast('已取得協作者的最新修改');
     } else if (localSignature !== remoteSignature) {
       const result = await updateOnlineShare({ ...record, version: remoteVersion }, localTrip); syncedVersion = result.version; syncedAt = result.updatedAt; showToast('本機修改已同步至雲端');
     }
@@ -840,9 +857,10 @@ async function renderOwnedTrip(tripId) {
     updateRememberedShare(record.id, { title: currentTrip.title, version: syncedVersion, updatedAt: syncedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: signature });
     const syncedRecord = { ...record, title: currentTrip.title, version: syncedVersion, updatedAt: syncedAt, syncedSignature: signature };
     activeOwnerSync = { record: syncedRecord, tripId, onlineShare: { ...onlineShare, version: syncedVersion }, conflict: false };
-    renderTrip(tripId); app.insertAdjacentHTML('afterbegin', ownerSyncBanner(syncedRecord)); startShareRefresh('owner', record.id, record.editToken, syncedVersion, tripId);
+    if (contentChanged) renderTrip(tripId);
+    replaceSyncBanner('.owner-sync-banner', ownerSyncBanner(syncedRecord)); startShareRefresh('owner', record.id, record.editToken, syncedVersion, tripId);
   } catch (error) {
-    renderTrip(tripId); app.insertAdjacentHTML('afterbegin', ownerSyncBanner(record, 'offline')); activeOwnerSync = { record, tripId, error }; showToast(`雲端同步暫時無法使用：${error.message}`);
+    replaceSyncBanner('.owner-sync-banner', ownerSyncBanner(record, 'offline')); activeOwnerSync = { record, tripId, error }; showToast(`雲端同步暫時無法使用：${error.message}`);
   }
 }
 
@@ -859,6 +877,40 @@ async function resolveOwnerSyncConflict(useCloud) {
   } catch (error) { alert(`無法解決同步衝突：${error.message}`); }
 }
 
+async function stageSharedRefresh(mode, id, token, latest, tripId = '') {
+  if (mode === 'owner') {
+    const record = linkedShareForTrip(tripId); const localTrip = data.trips.find(item => item.id === tripId);
+    if (!record || !localTrip) return;
+    const localSignature = sharePayloadSignature(createSharePayload(localTrip)); const remoteSignature = sharePayloadSignature(latest.payload); const baseSignature = record.syncedSignature || '';
+    const localChanged = Boolean(baseSignature && localSignature !== baseSignature); const remoteChanged = Number(latest.version) > Number(record.version) || Boolean(baseSignature && remoteSignature !== baseSignature);
+    if (localChanged && remoteChanged && localSignature !== remoteSignature) {
+      activeOwnerSync = { record, tripId, onlineShare: latest, conflict: true };
+      replaceSyncBanner('.owner-sync-banner', ownerSyncBanner(record, 'conflict')); return;
+    }
+    const cloudTrip = applyCloudTrip(latest, tripId); const syncedRecord = { ...record, title: cloudTrip.title, version: Number(latest.version) || record.version, updatedAt: Number(latest.updatedAt) || record.updatedAt, syncedSignature: remoteSignature };
+    updateRememberedShare(record.id, { title: cloudTrip.title, version: syncedRecord.version, updatedAt: syncedRecord.updatedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: remoteSignature });
+    activeOwnerSync = { record: syncedRecord, tripId, onlineShare: latest, conflict: false };
+    pendingSharedRefresh = { mode, id, tripId };
+    replaceSyncBanner('.owner-sync-banner', ownerSyncBanner(syncedRecord, 'updated'));
+    return;
+  }
+  if (mode === 'collab') {
+    const { sharedTrip, sharedSettings, countryName } = sharedTripBundle(latest.payload); const existingTrip = data.trips.find(item => item.id === sharedTrip.id);
+    if (!sharedTrip.coverImage && existingTrip?.coverImage?.startsWith('data:')) sharedTrip.coverImage = existingTrip.coverImage;
+    const incomingCountry = sharedSettings.countries[countryName]; const localCountry = data.settings.countries[countryName];
+    data.settings.countries[countryName] = localCountry ? { ...localCountry, cities: [...new Set([...localCountry.cities, ...sharedTrip.cities])] } : { ...incomingCountry, cities: [...new Set([...incomingCountry.cities, ...sharedTrip.cities])] };
+    data.trips = [...data.trips.filter(item => item.id !== sharedTrip.id), sharedTrip]; saveData();
+    activeCollaboration = { ...activeCollaboration, id, editToken: token, tripId: sharedTrip.id, version: Number(latest.version) || 1, updatedAt: Number(latest.updatedAt) || 0, expiresAt: Number(latest.expiresAt) || activeCollaboration?.expiresAt || 0 };
+    updateRememberedShare(id, { tripId: sharedTrip.id, title: sharedTrip.title, version: activeCollaboration.version, updatedAt: activeCollaboration.updatedAt, syncedSignature: sharePayloadSignature(latest.payload) });
+    pendingSharedRefresh = { mode, id, token };
+    replaceSyncBanner('.collaboration-banner', `<div class="readonly-share-banner collaboration-banner has-update"><div class="readonly-share-message"><strong>有新版本</strong><span>已在背景收到版本 ${activeCollaboration.version}，目前畫面不會自動重整。</span></div><button class="button button-primary" type="button" data-action="show-collab-update">顯示最新內容</button></div>`);
+    return;
+  }
+  pendingSharedRefresh = { mode, id, latest };
+  const banner = app.querySelector('.readonly-share-banner');
+  if (banner) banner.outerHTML = '<div class="readonly-share-banner has-update"><div class="readonly-share-message"><strong>有新版本</strong><span>分享者已更新內容，目前畫面不會自動重整。</span></div><button class="button button-primary" type="button" data-action="show-readonly-update">顯示最新內容</button></div>';
+}
+
 function startShareRefresh(mode, id, token, version, tripId = '') {
   clearInterval(shareRefreshTimer); let knownVersion = Number(version) || 1; let checking = false;
   shareRefreshTimer = setInterval(async () => {
@@ -868,11 +920,17 @@ function startShareRefresh(mode, id, token, version, tripId = '') {
       const latest = await loadOnlineShare(id);
       if ((Number(latest.version) || 1) > knownVersion) {
         knownVersion = Number(latest.version) || knownVersion;
-        if (mode === 'readonly') await renderSharedTrip(id); else if (mode === 'collab') await renderCollaborativeTrip(id, token); else await renderOwnedTrip(tripId);
+        await stageSharedRefresh(mode, id, token, latest, tripId);
       }
     } catch (error) { if ([404, 410].includes(error.status)) { clearInterval(shareRefreshTimer); showToast(error.message); } }
     finally { checking = false; }
   }, SHARE_REFRESH_INTERVAL);
+}
+
+async function refreshSharedView(renderLatest) {
+  const scrollTop = window.scrollY;
+  await renderLatest();
+  requestAnimationFrame(() => window.scrollTo({ top: scrollTop, behavior: 'instant' }));
 }
 
 async function renderSharedTrip(token) {
@@ -984,7 +1042,7 @@ app.addEventListener('change', async event => {
     }
     saveData();
     const syncResult = activeCollaboration ? null : await syncTripShares(trip, { quiet: true });
-    if (activeCollaboration) await renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); else { await renderOwnedTrip(trip.id); switchTripContentTab('checklist'); }
+    if (activeCollaboration) await refreshSharedView(() => renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken)); else { await refreshSharedView(() => renderOwnedTrip(trip.id)); switchTripContentTab('checklist'); }
     if (syncResult?.conflicts) showToast('本機已更新，但雲端已有較新版本');
     else if (syncResult?.failed) showToast('本機已更新，雲端同步暫時失敗');
     else showToast(event.target.checked ? '已標記為完成並同步' : '已取消完成並同步');
@@ -999,6 +1057,9 @@ app.addEventListener('click', event => {
   if (action === 'import-shared-trip') { openSharedImportConfirmation(); return; }
   if (action === 'reload-collab' && activeCollaboration) { renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); return; }
   if (action === 'sync-owner' && id) { renderOwnedTrip(id); return; }
+  if (action === 'show-owner-update' && activeOwnerSync) { pendingSharedRefresh = null; refreshSharedView(() => renderOwnedTrip(activeOwnerSync.tripId)); return; }
+  if (action === 'show-collab-update' && activeCollaboration) { pendingSharedRefresh = null; refreshSharedView(() => renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken)); return; }
+  if (action === 'show-readonly-update' && pendingSharedRefresh?.mode === 'readonly') { const shareId = pendingSharedRefresh.id; pendingSharedRefresh = null; refreshSharedView(() => renderSharedTrip(shareId)); return; }
   if (action === 'use-cloud-version') { resolveOwnerSyncConflict(true); return; }
   if (action === 'use-local-version') { resolveOwnerSyncConflict(false); return; }
   if (action === 'new') openTripEditor('', country || ''); if (action === 'edit') openTripEditor(id, '', tab || 'overview');

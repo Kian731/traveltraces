@@ -583,6 +583,7 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .owner-sync-banner { margin-bottom: 12px; }
 .owner-sync-banner.has-conflict { border-color: color-mix(in srgb, var(--warm) 38%, white); background: color-mix(in srgb, var(--warm) 12%, white); color: color-mix(in srgb, var(--warm) 76%, #34231c); }
 .owner-sync-banner.is-offline { border-color: var(--line); background: var(--surface-soft); color: var(--muted); }
+.readonly-share-banner.has-update { border-color: color-mix(in srgb, var(--warm) 42%, white); background: color-mix(in srgb, var(--warm) 13%, white); color: color-mix(in srgb, var(--warm) 78%, #34231c); }
 .owner-sync-actions { display: flex; gap: 8px; flex: none; }
 .import-share-copy { display: grid; gap: 8px; }
 .import-share-copy p { margin: 0; }
