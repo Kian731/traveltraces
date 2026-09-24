@@ -134,6 +134,7 @@ let activePlanDraft = [];
 let activeExpenseDraft = [];
 let activeSharedImport = null;
 let activeCollaboration = null;
+let activeOwnerSync = null;
 let shareRefreshTimer = null;
 function shadeHex(hex, amount = -22) { const clean = String(hex || '').replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(clean)) return DEFAULT_THEME.accent; const value = Number.parseInt(clean, 16); const channel = shift => Math.max(0, Math.min(255, shift + amount)); return `#${[value >> 16, value >> 8 & 255, value & 255].map(channel => channel.toString(16).padStart(2, '0')).join('')}`; }
 function applyTheme(theme = data.settings.theme || DEFAULT_THEME) { const root = document.documentElement; root.style.setProperty('--accent', theme.accent || DEFAULT_THEME.accent); root.style.setProperty('--accent-hover', shadeHex(theme.accent || DEFAULT_THEME.accent)); root.style.setProperty('--warm', theme.warm || DEFAULT_THEME.warm); root.style.setProperty('--bg', theme.background || DEFAULT_THEME.background); }
@@ -327,7 +328,7 @@ function shareSettingsCard() {
 
 function renderSettings(selectedCountry = Object.keys(data.settings.countries)[0], selectedAirport = airportCode(data.settings.originAirports[0])) {
   const country = countryOf(selectedCountry); const airlineCodes = [...new Set([...data.settings.originAirports.map(airportCode), ...Object.keys(data.settings.airlinesByAirport)])].filter(Boolean).sort();
-  app.innerHTML = `${pageBack()}<section class="page-intro settings-intro"><p class="eyebrow">Website settings</p><h1>網站設定</h1><p class="section-copy">管理建立旅程時使用的國家、城市、機場、航空公司與準備清單。所有變更只儲存在這個瀏覽器。</p></section>
+  app.innerHTML = `${pageBack()}<section class="page-intro settings-intro"><p class="eyebrow">Website settings</p><h1>網站設定</h1><p class="section-copy">管理建立旅程時使用的國家、城市、機場、航空公司與準備清單。網站選項儲存在這個瀏覽器；已建立同步分享的旅程會另外與雲端同步。</p></section>
   <section class="settings-grid">
     ${shareSettingsCard()}
     <article class="settings-card settings-wide"><div class="settings-card-head"><div><h2>網站配色</h2><p>調整全站主色、點綴色與頁面背景，儲存後會套用到所有頁面。</p></div></div><form id="theme-settings"><div class="theme-fields"><label>主色<input name="accent" type="color" value="${escapeHtml(data.settings.theme.accent)}"></label><label>點綴色<input name="warm" type="color" value="${escapeHtml(data.settings.theme.warm)}"></label><label>頁面背景<input name="background" type="color" value="${escapeHtml(data.settings.theme.background)}"></label></div><div class="form-actions theme-actions"><button class="button button-ghost" type="button" data-reset-theme>恢復預設</button><button class="button button-primary">儲存配色</button></div></form></article>
@@ -344,8 +345,8 @@ function renderNotFound() { app.innerHTML = `${pageBack()}<section class="page-i
 
 function route() {
   const hash = decodeURIComponent(location.hash.slice(1) || 'home'); const [page, ...rest] = hash.split('/');
-  clearInterval(homeCountdownTimer); clearInterval(shareRefreshTimer); shareRefreshTimer = null; activeSharedImport = null; activeCollaboration = null; document.body.classList.remove('readonly-share', 'collaborative-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
-  if (page === 'home' || page === 'knowledge') renderHome(); else if (page === 'country' && rest[0]) renderCountry(rest[0]); else if (page === 'trip' && rest[0]) renderTrip(rest.join('/')); else if (page === 'share' && rest[0]) renderSharedTrip(rest.join('/')); else if (page === 'collab' && rest[0] && rest[1]) renderCollaborativeTrip(rest[0], rest[1]); else if (page === 'settings') renderSettings(); else renderNotFound();
+  clearInterval(homeCountdownTimer); clearInterval(shareRefreshTimer); shareRefreshTimer = null; activeSharedImport = null; activeCollaboration = null; activeOwnerSync = null; document.body.classList.remove('readonly-share', 'collaborative-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
+  if (page === 'home' || page === 'knowledge') renderHome(); else if (page === 'country' && rest[0]) renderCountry(rest[0]); else if (page === 'trip' && rest[0]) renderOwnedTrip(rest.join('/')); else if (page === 'share' && rest[0]) renderSharedTrip(rest.join('/')); else if (page === 'collab' && rest[0] && rest[1]) renderCollaborativeTrip(rest[0], rest[1]); else if (page === 'settings') renderSettings(); else renderNotFound();
   if (page === 'knowledge') requestAnimationFrame(() => document.querySelector('#notes')?.scrollIntoView()); else window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
@@ -712,7 +713,7 @@ async function updateOnlineShare(record, trip) {
 
 function rememberShare(trip, result) {
   const records = loadShareRecords().filter(record => record.id !== result.id);
-  records.unshift({ id: result.id, tripId: trip.id, title: trip.title, expiresAt: result.expiresAt, deleteToken: result.deleteToken, editToken: result.editToken, version: result.version || 1, updatedAt: result.updatedAt || Date.now(), createdAt: Date.now() });
+  records.unshift({ id: result.id, tripId: trip.id, title: trip.title, expiresAt: result.expiresAt, deleteToken: result.deleteToken, editToken: result.editToken, version: result.version || 1, updatedAt: result.updatedAt || Date.now(), syncedSignature: sharePayloadSignature(createSharePayload(trip)), createdAt: Date.now() });
   saveShareRecords(records);
 }
 
@@ -729,9 +730,9 @@ async function syncTripShares(trip, { quiet = false } = {}) {
   for (const record of linked) {
     try {
       const result = await updateOnlineShare(record, trip);
-      Object.assign(record, { title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: result.expiresAt || record.expiresAt }); synced += 1;
+      Object.assign(record, { title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: result.expiresAt || record.expiresAt, syncedSignature: sharePayloadSignature(createSharePayload(trip)) }); synced += 1;
     } catch (error) {
-      if (error.status === 409) { conflicts += 1; Object.assign(record, { version: error.details?.version || record.version, updatedAt: error.details?.updatedAt || record.updatedAt }); }
+      if (error.status === 409) { conflicts += 1; Object.assign(record, { remoteVersion: error.details?.version || record.remoteVersion, remoteUpdatedAt: error.details?.updatedAt || record.remoteUpdatedAt }); }
       else { failed += 1; if (!quiet) alert(`旅程已儲存在這台裝置，但雲端同步失敗：${error.message}`); }
     }
   }
@@ -744,7 +745,7 @@ async function syncActiveCollaboration(trip) {
   if (!activeCollaboration || activeCollaboration.tripId !== trip.id) return null;
   const result = await updateOnlineShare(activeCollaboration, trip);
   Object.assign(activeCollaboration, { version: result.version, updatedAt: result.updatedAt, expiresAt: result.expiresAt || activeCollaboration.expiresAt });
-  updateRememberedShare(activeCollaboration.id, { tripId: trip.id, title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: activeCollaboration.expiresAt });
+  updateRememberedShare(activeCollaboration.id, { tripId: trip.id, title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: activeCollaboration.expiresAt, syncedSignature: sharePayloadSignature(createSharePayload(trip)) });
   return result;
 }
 
@@ -768,6 +769,10 @@ function createSharePayload(trip) {
   return { v: 3, t: packedTrip, c: [destination.emoji, normalizeHex(destination.color, '#4f665b'), shareableImage(destination.image)], h: [theme.accent, theme.warm, theme.background] };
 }
 
+function sharePayloadSignature(payload) {
+  return payload && Array.isArray(payload.t) ? JSON.stringify([payload.v, payload.t]) : JSON.stringify(payload?.trip || payload);
+}
+
 function expandSharePayload(payload) {
   if (![2, 3].includes(payload?.v)) return payload;
   const t = payload.t; if (!Array.isArray(t) || !Array.isArray(payload.c) || !Array.isArray(payload.h)) throw new Error('分享資料格式不正確');
@@ -787,7 +792,74 @@ function sharedTripBundle(storedPayload) {
   return { sharedTrip, sharedSettings, countryName };
 }
 
-function startShareRefresh(mode, id, token, version) {
+function linkedShareForTrip(tripId) {
+  return loadShareRecords().find(record => record.tripId === tripId && record.editToken && Number(record.expiresAt) > Date.now());
+}
+
+function applyCloudTrip(onlineShare, tripId) {
+  const { sharedTrip, sharedSettings, countryName } = sharedTripBundle(onlineShare.payload); sharedTrip.id = tripId;
+  const existingTrip = data.trips.find(item => item.id === tripId); if (!sharedTrip.coverImage && existingTrip?.coverImage?.startsWith('data:')) sharedTrip.coverImage = existingTrip.coverImage;
+  const incomingCountry = sharedSettings.countries[countryName]; const localCountry = data.settings.countries[countryName];
+  data.settings.countries[countryName] = localCountry ? { ...localCountry, cities: [...new Set([...localCountry.cities, ...sharedTrip.cities])] } : { ...incomingCountry, cities: [...new Set([...incomingCountry.cities, ...sharedTrip.cities])] };
+  data.trips = data.trips.map(item => item.id === tripId ? sharedTrip : item); saveData(); return sharedTrip;
+}
+
+function ownerSyncBanner(record, state = 'ready') {
+  const details = state === 'conflict'
+    ? '<span>本機與雲端都有新修改，為避免覆蓋資料，請選擇要保留的版本。</span>'
+    : state === 'offline'
+      ? '<span>目前無法連線至雲端，本機資料仍可使用。</span>'
+      : `<span>已連接同一趟雲端旅程 · 版本 ${record.version} · 每 5 秒同步</span>`;
+  const actions = state === 'conflict'
+    ? '<div class="owner-sync-actions"><button class="button button-soft" type="button" data-action="use-cloud-version">套用雲端版本</button><button class="button button-ghost" type="button" data-action="use-local-version">用本機版本更新雲端</button></div>'
+    : `<button class="button button-soft" type="button" data-action="sync-owner" data-id="${escapeHtml(record.tripId)}">${state === 'offline' ? '重新連線' : '立即同步'}</button>`;
+  return `<div class="readonly-share-banner owner-sync-banner ${state === 'conflict' ? 'has-conflict' : state === 'offline' ? 'is-offline' : ''}"><div class="readonly-share-message"><strong>${state === 'conflict' ? '同步衝突' : state === 'offline' ? '雲端同步暫停' : '雲端同步中'}</strong>${details}</div>${actions}</div>`;
+}
+
+async function renderOwnedTrip(tripId) {
+  clearInterval(shareRefreshTimer); const localTrip = data.trips.find(item => item.id === tripId); if (!localTrip) return renderNotFound();
+  const record = linkedShareForTrip(tripId); activeOwnerSync = null;
+  if (!record) { renderTrip(tripId); return; }
+  renderTrip(tripId); app.insertAdjacentHTML('afterbegin', ownerSyncBanner(record));
+  try {
+    const onlineShare = await loadOnlineShare(record.id);
+    if (decodeURIComponent(location.hash.slice(1)) !== `trip/${tripId}`) return;
+    const remoteVersion = Number(onlineShare.version) || 1; const localSignature = sharePayloadSignature(createSharePayload(localTrip)); const remoteSignature = sharePayloadSignature(onlineShare.payload); const baseSignature = record.syncedSignature || '';
+    const localChanged = Boolean(baseSignature && localSignature !== baseSignature); const remoteChanged = remoteVersion > Number(record.version) || Boolean(baseSignature && remoteSignature !== baseSignature);
+    if (localChanged && remoteChanged && localSignature !== remoteSignature) {
+      activeOwnerSync = { record, tripId, onlineShare, conflict: true };
+      renderTrip(tripId); app.insertAdjacentHTML('afterbegin', ownerSyncBanner(record, 'conflict')); return;
+    }
+    let currentTrip = localTrip; let syncedVersion = remoteVersion; let syncedAt = Number(onlineShare.updatedAt) || record.updatedAt;
+    if (remoteVersion > Number(record.version) || (!localChanged && localSignature !== remoteSignature)) {
+      currentTrip = applyCloudTrip(onlineShare, tripId); showToast('已取得協作者的最新修改');
+    } else if (localSignature !== remoteSignature) {
+      const result = await updateOnlineShare({ ...record, version: remoteVersion }, localTrip); syncedVersion = result.version; syncedAt = result.updatedAt; showToast('本機修改已同步至雲端');
+    }
+    const signature = sharePayloadSignature(createSharePayload(currentTrip));
+    updateRememberedShare(record.id, { title: currentTrip.title, version: syncedVersion, updatedAt: syncedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: signature });
+    const syncedRecord = { ...record, title: currentTrip.title, version: syncedVersion, updatedAt: syncedAt, syncedSignature: signature };
+    activeOwnerSync = { record: syncedRecord, tripId, onlineShare: { ...onlineShare, version: syncedVersion }, conflict: false };
+    renderTrip(tripId); app.insertAdjacentHTML('afterbegin', ownerSyncBanner(syncedRecord)); startShareRefresh('owner', record.id, record.editToken, syncedVersion, tripId);
+  } catch (error) {
+    renderTrip(tripId); app.insertAdjacentHTML('afterbegin', ownerSyncBanner(record, 'offline')); activeOwnerSync = { record, tripId, error }; showToast(`雲端同步暫時無法使用：${error.message}`);
+  }
+}
+
+async function resolveOwnerSyncConflict(useCloud) {
+  if (!activeOwnerSync?.conflict) return; const { record, tripId, onlineShare } = activeOwnerSync; const localTrip = data.trips.find(item => item.id === tripId); if (!localTrip) return;
+  try {
+    if (useCloud) {
+      const cloudTrip = applyCloudTrip(onlineShare, tripId); updateRememberedShare(record.id, { title: cloudTrip.title, version: onlineShare.version, updatedAt: onlineShare.updatedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: sharePayloadSignature(onlineShare.payload) }); showToast('已套用雲端最新版本');
+    } else {
+      if (!confirm('確定要用這台裝置的內容更新雲端版本嗎？其他裝置的最新修改會被取代。')) return;
+      const result = await updateOnlineShare({ ...record, version: Number(onlineShare.version) || 1 }, localTrip); updateRememberedShare(record.id, { title: localTrip.title, version: result.version, updatedAt: result.updatedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: sharePayloadSignature(createSharePayload(localTrip)) }); showToast('已用本機版本更新雲端');
+    }
+    await renderOwnedTrip(tripId);
+  } catch (error) { alert(`無法解決同步衝突：${error.message}`); }
+}
+
+function startShareRefresh(mode, id, token, version, tripId = '') {
   clearInterval(shareRefreshTimer); let knownVersion = Number(version) || 1; let checking = false;
   shareRefreshTimer = setInterval(async () => {
     if (checking || modal.open || confirmDialog.open) return;
@@ -796,7 +868,7 @@ function startShareRefresh(mode, id, token, version) {
       const latest = await loadOnlineShare(id);
       if ((Number(latest.version) || 1) > knownVersion) {
         knownVersion = Number(latest.version) || knownVersion;
-        if (mode === 'readonly') await renderSharedTrip(id); else await renderCollaborativeTrip(id, token);
+        if (mode === 'readonly') await renderSharedTrip(id); else if (mode === 'collab') await renderCollaborativeTrip(id, token); else await renderOwnedTrip(tripId);
       }
     } catch (error) { if ([404, 410].includes(error.status)) { clearInterval(shareRefreshTimer); showToast(error.message); } }
     finally { checking = false; }
@@ -830,11 +902,12 @@ async function renderCollaborativeTrip(id, editToken) {
   try {
     const onlineShare = await loadOnlineShare(id); const { sharedTrip, sharedSettings, countryName } = sharedTripBundle(onlineShare.payload);
     if (decodeURIComponent(location.hash.slice(1)) !== `collab/${id}/${editToken}`) return;
+    const existingTrip = data.trips.find(item => item.id === sharedTrip.id); if (!sharedTrip.coverImage && existingTrip?.coverImage?.startsWith('data:')) sharedTrip.coverImage = existingTrip.coverImage;
     const incomingCountry = sharedSettings.countries[countryName]; const localCountry = data.settings.countries[countryName];
     data.settings.countries[countryName] = localCountry ? { ...localCountry, cities: [...new Set([...localCountry.cities, ...sharedTrip.cities])] } : { ...incomingCountry, cities: [...new Set([...incomingCountry.cities, ...sharedTrip.cities])] };
     data.trips = [...data.trips.filter(item => item.id !== sharedTrip.id), sharedTrip]; saveData();
     activeCollaboration = { id, editToken, tripId: sharedTrip.id, version: Number(onlineShare.version) || 1, updatedAt: Number(onlineShare.updatedAt) || 0, expiresAt: Number(onlineShare.expiresAt) || 0 };
-    updateRememberedShare(id, { tripId: sharedTrip.id, title: sharedTrip.title, version: activeCollaboration.version, updatedAt: activeCollaboration.updatedAt });
+    updateRememberedShare(id, { tripId: sharedTrip.id, title: sharedTrip.title, version: activeCollaboration.version, updatedAt: activeCollaboration.updatedAt, syncedSignature: sharePayloadSignature(onlineShare.payload) });
     renderTrip(sharedTrip.id); document.body.classList.add('collaborative-share'); document.title = `${sharedTrip.title}－協作旅程`;
     app.querySelector('.page-back')?.remove();
     app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner collaboration-banner"><div class="readonly-share-message"><strong>協作編輯中</strong><span>修改會同步到同一趟旅程；其他裝置每 5 秒取得最新版。版本 ${activeCollaboration.version}${activeCollaboration.updatedAt ? ` · ${escapeHtml(shareExpiryDate(activeCollaboration.updatedAt))} 更新` : ''}</span></div><button class="button button-soft" type="button" data-action="reload-collab">重新載入</button></div>`);
@@ -883,7 +956,7 @@ async function shareTrip(id) {
     const existing = loadShareRecords().find(record => record.tripId === trip.id && record.editToken && Number(record.expiresAt) > Date.now());
     if (existing) {
       const result = await updateOnlineShare(existing, trip);
-      const record = { ...existing, title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: result.expiresAt || existing.expiresAt };
+      const record = { ...existing, title: trip.title, version: result.version, updatedAt: result.updatedAt, expiresAt: result.expiresAt || existing.expiresAt, syncedSignature: sharePayloadSignature(createSharePayload(trip)) };
       updateRememberedShare(existing.id, record); openShareLinks(trip, record); return;
     }
     const turnstileToken = await requestTurnstileToken();
@@ -911,7 +984,7 @@ app.addEventListener('change', async event => {
     }
     saveData();
     const syncResult = activeCollaboration ? null : await syncTripShares(trip, { quiet: true });
-    if (activeCollaboration) await renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); else { renderTrip(trip.id); switchTripContentTab('checklist'); }
+    if (activeCollaboration) await renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); else { await renderOwnedTrip(trip.id); switchTripContentTab('checklist'); }
     if (syncResult?.conflicts) showToast('本機已更新，但雲端已有較新版本');
     else if (syncResult?.failed) showToast('本機已更新，雲端同步暫時失敗');
     else showToast(event.target.checked ? '已標記為完成並同步' : '已取消完成並同步');
@@ -925,6 +998,9 @@ app.addEventListener('click', event => {
   if (action === 'back') { if (history.length > 1) history.back(); else location.hash = 'home'; return; }
   if (action === 'import-shared-trip') { openSharedImportConfirmation(); return; }
   if (action === 'reload-collab' && activeCollaboration) { renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); return; }
+  if (action === 'sync-owner' && id) { renderOwnedTrip(id); return; }
+  if (action === 'use-cloud-version') { resolveOwnerSyncConflict(true); return; }
+  if (action === 'use-local-version') { resolveOwnerSyncConflict(false); return; }
   if (action === 'new') openTripEditor('', country || ''); if (action === 'edit') openTripEditor(id, '', tab || 'overview');
   if (action === 'print-trip') exportTripPdf(id); if (action === 'share-trip') shareTrip(id);
   if (target.matches('[data-country]:not([data-action]):not([data-city])')) location.hash = `country/${encodeURIComponent(country)}`; if (target.matches('[data-city]')) renderCountry(country, city);
