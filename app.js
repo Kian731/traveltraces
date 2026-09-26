@@ -439,8 +439,8 @@ function syncExpenseDayEditors(seedExpenses) {
 function expenseEditor(container, row = {}) {
   const wrapper = document.createElement('div'); wrapper.className = 'entry expense-entry'; const expanded = Boolean(row.split || row.note);
   const field = (name, label, type = 'text', value = '') => `<label class="expense-${name}"><span>${label}</span><input data-field="${name}" aria-label="${label}" type="${type}" ${type === 'number' ? 'min="0"' : ''} value="${escapeHtml(value)}"></label>`;
-  wrapper.innerHTML = `<button class="drag-handle expense-drag" type="button" aria-label="拖曳調整支出順序" title="拖曳調整順序">⠿</button><label class="expense-category"><span>分類</span><input data-field="category" aria-label="分類" list="expense-category-list" value="${escapeHtml(row.category || '')}" placeholder="選擇或輸入分類"></label>${field('item', '項目', 'text', row.item || '')}${field('price', '單價', 'number', row.price || '')}${field('quantity', '數量', 'number', row.quantity || '1')}<div class="expense-more" ${expanded ? '' : 'hidden'}>${field('split', '平分', 'number', row.split || '')}${field('note', '備註', 'text', row.note || '')}</div><button class="button button-ghost expense-more-toggle" type="button" data-toggle-expense aria-label="${expanded ? '收起平分與備註' : '展開平分與備註'}">${expanded ? '－' : '＋'}</button><button class="icon-button expense-remove" type="button" aria-label="刪除此列">×</button>`;
-  wrapper.querySelector('[data-toggle-expense]').addEventListener('click', event => { const more = wrapper.querySelector('.expense-more'); more.hidden = !more.hidden; event.currentTarget.textContent = more.hidden ? '＋' : '－'; event.currentTarget.setAttribute('aria-label', more.hidden ? '展開平分與備註' : '收起平分與備註'); });
+  wrapper.innerHTML = `<button class="drag-handle expense-drag" type="button" aria-label="拖曳調整支出順序" title="拖曳調整順序">⠿</button><label class="expense-category"><span>分類</span><input data-field="category" aria-label="分類" list="expense-category-list" value="${escapeHtml(row.category || '')}" placeholder="例如：住宿、餐飲"></label>${field('item', '項目', 'text', row.item || '')}${field('price', '金額', 'number', row.price || '')}${field('quantity', '數量', 'number', row.quantity || '1')}<div class="expense-more" ${expanded ? '' : 'hidden'}>${field('split', '平分人數', 'number', row.split || '')}${field('note', '備註', 'text', row.note || '')}</div><button class="button button-ghost expense-more-toggle" type="button" data-toggle-expense aria-expanded="${expanded ? 'true' : 'false'}">${expanded ? '收起選項' : '更多選項'}</button><button class="icon-button expense-remove" type="button" aria-label="刪除此筆支出" title="刪除此筆支出">×</button>`;
+  wrapper.querySelector('[data-toggle-expense]').addEventListener('click', event => { const more = wrapper.querySelector('.expense-more'); more.hidden = !more.hidden; event.currentTarget.textContent = more.hidden ? '更多選項' : '收起選項'; event.currentTarget.setAttribute('aria-expanded', String(!more.hidden)); });
   wrapper.querySelector('.expense-remove').addEventListener('click', async () => { const name = wrapper.querySelector('[data-field="item"]').value.trim() || '這筆支出'; if (!await confirmDeletion(`確定要刪除「${name}」嗎？`, '刪除支出項目')) return; const day = wrapper.closest('.expense-day-editor'); wrapper.remove(); if (day) updateExpenseDaySummary(day); });
   container.append(wrapper); enhanceDatalistInput(wrapper.querySelector('[list="expense-category-list"]')); return wrapper;
 }
@@ -552,6 +552,14 @@ function openTripEditor(id = '', forcedCountry = '', initialTab = 'overview') {
   modalContent.querySelector('#cover-upload').addEventListener('change', async event => { try { const result = await compressCoverImage(event.target.files[0]); modalContent.querySelector('[name="coverImage"]').value = result; modalContent.querySelector('.cover-preview').style.setProperty('--preview', `url('${result}')`); showToast('封面圖片已上載'); } catch (error) { alert(error.message); } finally { event.target.value = ''; } });
   modalContent.querySelector('[data-remove-cover]').addEventListener('click', () => { modalContent.querySelector('[name="coverImage"]').value = ''; const fallback = countryOf(modalContent.querySelector('[name="country"]').value); modalContent.querySelector('.cover-preview').style.setProperty('--preview', `url('${fallback.image}')`); });
   modalContent.querySelector('#trip-form').addEventListener('input', () => updateEditorCompletion(modalContent.querySelector('#trip-form')));
+  modalContent.querySelector('#trip-form').addEventListener('focusin', event => {
+    if (!event.target.matches('input, textarea, select')) return;
+    modal.classList.add('keyboard-open');
+    setTimeout(() => event.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 180);
+  });
+  modalContent.querySelector('#trip-form').addEventListener('focusout', () => setTimeout(() => {
+    if (!modalContent.querySelector('#trip-form :focus')) modal.classList.remove('keyboard-open');
+  }, 120));
   if (existing) modalContent.querySelector('[data-delete]').addEventListener('click', () => deleteTrip(existing));
   modalContent.querySelector('#trip-form').addEventListener('submit', event => saveTrip(event, trip.id, Boolean(existing)));
   syncTravelScopeFields(); switchEditorTab(initialTab); updateEditorCompletion(modalContent.querySelector('#trip-form')); requestAnimationFrame(() => modalContent.querySelector('[name="title"]').focus());
@@ -997,7 +1005,7 @@ async function renderSharedTrip(token) {
     app.querySelectorAll('input').forEach(input => { input.disabled = true; input.removeAttribute('data-quick-check'); });
     app.querySelectorAll('.section').forEach(section => { if (section.querySelector('h2')?.textContent === '旅程準備清單') { const copy = section.querySelector('.section-copy'); if (copy) copy.textContent = `已完成 ${sharedTrip.checklist.flatMap(group => group.items).filter(item => item.checked).length}／${sharedTrip.checklist.flatMap(group => group.items).length} 項`; } });
     const expiry = onlineShare?.expiresAt ? `有效至 ${shareExpiryDate(onlineShare.expiresAt)}，內容每 5 秒同步。` : '此頁僅供查看，內容無法編輯。';
-    app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner"><div class="readonly-share-message"><strong>同步唯讀旅程</strong><span>${escapeHtml(expiry)}</span></div><button class="button button-primary" type="button" data-action="import-shared-trip">加入我的旅程</button></div>`);
+    app.insertAdjacentHTML('afterbegin', `<div class="readonly-share-banner"><div class="readonly-share-message"><strong>同步唯讀旅程</strong><span>${escapeHtml(expiry)}</span></div><div class="readonly-share-actions"><button class="button button-soft" type="button" data-action="replace-shared-trip">取代我的旅程</button><button class="button button-primary" type="button" data-action="import-shared-trip">加入我的旅程</button></div></div>`);
     if (onlineShare) startShareRefresh('readonly', token, '', onlineShare.version);
   } catch (error) {
     document.body.classList.add('readonly-share'); app.innerHTML = `<section class="page-intro">${emptyState('無法開啟這份旅程', error.message || '連結可能不完整、已過期或已損壞。', false)}</section>`;
@@ -1032,18 +1040,46 @@ function openSharedImportConfirmation() {
   modalContent.querySelector('[data-confirm-import]').addEventListener('click', importSharedTrip);
 }
 
+function mergeSharedCountry(source) {
+  const countryName = source.country;
+  if (!data.settings.countries[countryName]) {
+    data.settings.countries[countryName] = { ...clone(activeSharedImport.country || {}), cities: [...new Set(source.cities || [])], airports: activeSharedImport.country?.airports || [] };
+  } else {
+    data.settings.countries[countryName].cities = [...new Set([...data.settings.countries[countryName].cities, ...(source.cities || [])])];
+  }
+}
+
 function importSharedTrip() {
   if (!activeSharedImport?.trip) return;
-  const source = clone(activeSharedImport.trip); const countryName = source.country;
-  if (!data.settings.countries[countryName]) {
-    data.settings.countries[countryName] = { ...clone(activeSharedImport.country), cities: [...new Set(source.cities)], airports: activeSharedImport.country?.airports || [] };
-  } else {
-    data.settings.countries[countryName].cities = [...new Set([...data.settings.countries[countryName].cities, ...source.cities])];
-  }
+  const source = clone(activeSharedImport.trip);
+  mergeSharedCountry(source);
   source.id = crypto.randomUUID();
   const imported = normalizeTrip(source, data.settings); data.trips.unshift(imported);
   if (!saveData()) { data.trips.shift(); return; }
   modal.close(); location.hash = `trip/${encodeURIComponent(imported.id)}`; route(); showToast('已加入我的旅程，可開始編輯');
+}
+
+function openSharedReplaceConfirmation() {
+  if (!activeSharedImport?.trip) return;
+  if (!data.trips.length) { showToast('目前沒有可取代的旅程，請改用「加入我的旅程」'); return; }
+  const source = activeSharedImport.trip;
+  const matchingTrip = data.trips.find(trip => trip.title === source.title);
+  const options = data.trips.map(trip => `<option value="${escapeHtml(trip.id)}" ${trip.id === matchingTrip?.id ? 'selected' : ''}>${escapeHtml(trip.title || '未命名旅程')} · ${escapeHtml(trip.country || '目的地未定')} · ${escapeHtml(formatDate(trip.start))}</option>`).join('');
+  modalFrame('取代我的旅程', `<div class="import-share-copy"><p>選擇要被最新版規劃取代的既有旅程。</p><label class="replace-trip-select">要取代的旅程<select data-replace-trip>${options}</select></label><p class="confirm-warning">原本的行程、支出與準備清單將被取代，無法在網站內復原；建議先備份。</p></div>`, '<div class="modal-foot"><div class="modal-foot-right"><button class="button button-ghost" type="button" data-cancel-import>取消</button><button class="button button-danger" type="button" data-confirm-replace>確認取代</button></div></div>');
+  modalContent.querySelector('[data-cancel-import]').addEventListener('click', () => modal.close());
+  modalContent.querySelector('[data-confirm-replace]').addEventListener('click', replaceSharedTrip);
+}
+
+function replaceSharedTrip() {
+  if (!activeSharedImport?.trip) return;
+  const targetId = modalContent.querySelector('[data-replace-trip]')?.value;
+  const targetIndex = data.trips.findIndex(trip => trip.id === targetId);
+  if (targetIndex < 0) { showToast('找不到要取代的旅程'); return; }
+  const source = clone(activeSharedImport.trip); const originalData = clone(data);
+  mergeSharedCountry(source); source.id = targetId;
+  data.trips[targetIndex] = normalizeTrip(source, data.settings);
+  if (!saveData()) { data = originalData; return; }
+  modal.close(); location.hash = `trip/${encodeURIComponent(targetId)}`; route(); showToast('已用分享旅程的最新版取代既有規劃');
 }
 
 async function copyShareUrl(url) {
@@ -1096,6 +1132,7 @@ app.addEventListener('click', event => {
   if (target.dataset.scrollTarget) { document.querySelector(`#${target.dataset.scrollTarget}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   if (action === 'back') { if (history.length > 1) history.back(); else location.hash = 'home'; return; }
   if (action === 'import-shared-trip') { openSharedImportConfirmation(); return; }
+  if (action === 'replace-shared-trip') { openSharedReplaceConfirmation(); return; }
   if (action === 'reload-collab' && activeCollaboration) { renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken); return; }
   if (action === 'sync-owner' && id) { renderOwnedTrip(id); return; }
   if (action === 'show-owner-update' && activeOwnerSync) { pendingSharedRefresh = null; refreshSharedView(() => renderOwnedTrip(activeOwnerSync.tripId)); return; }
