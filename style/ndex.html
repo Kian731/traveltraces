@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="收藏旅程、規劃下一次出發，讓每一段旅行都有一個安靜的位置。">
+  <meta name="theme-color" content="#f4f0e8">
+  <title>旅跡 · 我的旅行紀錄</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://images.unsplash.com">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="scroll-progress" aria-hidden="true"><span></span></div>
+  <a class="skip-link" href="#app">跳到主要內容</a>
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="brand" href="#home" aria-label="旅跡首頁">
+        <span class="brand-mark" aria-hidden="true">旅</span>
+        <span class="brand-copy"><strong>旅跡</strong><small>Travel journal</small></span>
+      </a>
+      <div class="nav-actions">
+        <button class="button button-ghost desktop-only" id="import" type="button">匯入</button>
+        <button class="button button-ghost desktop-only" id="backup" type="button">備份</button>
+        <button class="button button-primary" id="new-trip" type="button">
+          <span aria-hidden="true">＋</span><span class="desktop-only">新增旅程</span><span class="mobile-only">新增</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="app" tabindex="-1"></main>
+
+  <footer class="site-footer">
+    <div>
+      <a class="footer-brand" href="#home"><span class="brand-mark" aria-hidden="true">旅</span><span>旅跡</span></a>
+      <p>為每一次出發保留期待，也替走過的風景留下一個安靜的位置。</p>
+    </div>
+    <div class="footer-actions">
+      <span>Personal travel archive · 2026</span>
+      <a class="button button-soft" href="#settings">網站設定</a>
+    </div>
+  </footer>
+
+  <input id="file" type="file" accept="application/json,.json" hidden>
+  <dialog id="modal" aria-labelledby="modal-title"><div id="modal-content"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="../catalog.js"></script>
+  <script src="../app.js"></script>
+  <script src="enhancements.js"></script>
+</body>
+</html>

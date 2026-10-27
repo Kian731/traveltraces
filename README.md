@@ -12,6 +12,15 @@ python -m http.server 4173
 
 再開啟 `http://localhost:4173`。
 
+## 一鍵發佈到 GitHub Pages
+
+雙擊根目錄的 `發佈到 GitHub.cmd`，即可將前端與 Worker 程式同步到
+`kian731/traveltraces`，提交並推送至 GitHub。第一次執行會使用 GitHub CLI 開啟瀏覽器登入；登入資料由 GitHub CLI 安全保存，腳本不會儲存 Token。
+
+- 此工具只上載／更新專案檔案，不會刪除 GitHub 上其他既有檔案。
+- Worker 程式碼會一併提交，但不會自動執行 Cloudflare 部署。
+- GitHub Pages 推送後通常需要約一至兩分鐘更新。
+
 ## 資料安全
 
 - 「備份」會下載 JSON 檔，建議定期保存。

@@ -250,8 +250,10 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .expense-more label input { border: 0; border-radius: 10px; padding-left: 4px; }
 .expense-more-toggle { grid-area: toggle; align-self: center; min-height: 40px; margin: 0; border: 1px solid var(--line); padding: 6px 10px; background: white; font-size: 12px; line-height: 1.2; white-space: nowrap; }
 .expense-remove { grid-area: remove; align-self: center !important; margin: 0; background: white; }
-.expense-day-editor { position: relative; overflow: visible; }
+.expense-day-editor { position: relative; overflow: visible; z-index: 1; }
+.expense-day-editor:focus-within { z-index: 40; }
 .expense-day-list { display: grid; gap: 8px; }
+.legacy-expense-hint { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: #fff1db; color: #79501f; }
 .smart-select { position: relative; }
 .smart-select:focus-within { z-index: 30; }
 .smart-options { position: absolute; top: calc(100% + 6px); right: 0; left: 0; z-index: 50; max-height: 220px; overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: 0 16px 36px rgba(28, 39, 33, .16); }
@@ -308,6 +310,7 @@ input::placeholder, textarea::placeholder { color: #adb1ae; }
 .panel-intro h3 { margin-bottom: 4px; }
 .panel-intro p { margin: 0; color: var(--muted); }
 .day-editor { margin-bottom: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fbfbf8; }
+.expense-day-editor { overflow: visible; }
 .day-editor-head { margin: 0; }
 .day-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; width: 100%; border: 0; padding: 15px 18px; background: transparent; color: var(--ink); text-align: left; }
 .day-summary strong { font-family: "Noto Serif TC", serif; font-size: 20px; }

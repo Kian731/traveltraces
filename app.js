@@ -419,7 +419,8 @@ function updateExpenseDaySummary(day) {
 function expenseDayEditor(date, expenses = [], collapsed = true) {
   const container = modalContent.querySelector('#expense-day-entries'); if (!container) return null;
   const wrapper = document.createElement('section'); wrapper.className = `day-editor expense-day-editor ${collapsed ? 'collapsed' : ''}`; wrapper.dataset.expenseDate = date;
-  wrapper.innerHTML = `<div class="day-editor-head"><button class="day-summary" type="button" data-toggle-expense-day aria-expanded="${collapsed ? 'false' : 'true'}"><strong>${escapeHtml(date ? planDateLabel(date) : '日期未設定')}</strong><span data-expense-day-count>0 筆支出</span><i aria-hidden="true">⌃</i></button></div><div class="day-editor-body expense-day-body" ${collapsed ? 'hidden' : ''}><div class="expense-editor-head" aria-hidden="true"><span></span><span>分類</span><span>項目</span><span>單價</span><span>數量</span></div><div class="expense-day-list"></div><button class="button button-soft append-button" type="button" data-add-expense>＋ 新增支出項目</button></div>`;
+  const legacyHint = date ? '' : '<p class="helper legacy-expense-hint">這些支出未儲存日期，但資料仍完整保留在這裡。</p>';
+  wrapper.innerHTML = `<div class="day-editor-head"><button class="day-summary" type="button" data-toggle-expense-day aria-expanded="${collapsed ? 'false' : 'true'}"><strong>${escapeHtml(date ? planDateLabel(date) : '未設定日期的支出')}</strong><span data-expense-day-count>0 筆支出</span><i aria-hidden="true">⌃</i></button></div><div class="day-editor-body expense-day-body" ${collapsed ? 'hidden' : ''}>${legacyHint}<div class="expense-editor-head" aria-hidden="true"><span></span><span>分類</span><span>項目</span><span>單價</span><span>數量</span></div><div class="expense-day-list"></div><button class="button button-soft append-button" type="button" data-add-expense>＋ 新增支出項目</button></div>`;
   const list = wrapper.querySelector('.expense-day-list');
   expenses.forEach(expense => expenseEditor(list, expense)); enablePointerSort(list, '.expense-entry', '.expense-drag');
   wrapper.querySelector('[data-toggle-expense-day]').addEventListener('click', () => { const body = wrapper.querySelector('.expense-day-body'); body.hidden = !body.hidden; wrapper.classList.toggle('collapsed', body.hidden); wrapper.querySelector('[data-toggle-expense-day]').setAttribute('aria-expanded', String(!body.hidden)); });
@@ -435,7 +436,8 @@ function syncExpenseDayEditors(seedExpenses) {
   current.forEach(expense => { const date = expense.date || ''; if (!grouped.has(date)) grouped.set(date, []); grouped.get(date).push(expense); });
   const plannedDates = tripDateRange(); const extraDates = [...grouped.keys()].filter(Boolean).filter(date => !plannedDates.includes(date)); const dates = [...new Set([...plannedDates, ...extraDates])].sort(); container.innerHTML = '';
   if (!dates.length && !grouped.has('')) { container.innerHTML = '<p class="helper itinerary-date-hint">請先到「基本資料」設定開始與結束日期。</p>'; return; }
-  dates.forEach(date => expenseDayEditor(date, grouped.get(date) || [], true)); if (grouped.has('')) expenseDayEditor('', grouped.get(''), true);
+  if (grouped.has('')) expenseDayEditor('', grouped.get(''), false);
+  dates.forEach(date => expenseDayEditor(date, grouped.get(date) || [], true));
 }
 
 function expenseEditor(container, row = {}) {
