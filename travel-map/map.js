@@ -7,6 +7,10 @@ const MAP_MAX_BYTES = 50000000;
 const MAP_GLYPHS = [0, 256, 512, 768, 1024, 1280, 1536, 1792, 2048, 2304, 3072, 3328, 3584, 8192, 12288, 12544, 65280];
 let travelMapView, mapLibrePromise, offlineDownloadRunning = false, lastRouteFetch = 0;
 const mapDayByTrip = new Map();
+const SHORT_POINT_KEY = 'travelMapShortPointsV1';
+const shortLookups = new Map();
+const locationHintTimers = new WeakMap();
+let savedShortPoints;
 
 function validMapPoint(lat, lng) {
   if (lat === null || lng === null || String(lat).trim() === '' || String(lng).trim() === '') return null;
@@ -36,6 +40,53 @@ function pointFromMapLink(value) {
   } catch { return null; }
 }
 
+function googleShortId(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.host !== 'maps.app.goo.gl' || url.username || url.password) return '';
+    return /^\/([A-Za-z0-9]{8,40})\/?$/.exec(url.pathname)?.[1] || '';
+  } catch { return ''; }
+}
+
+function readShortPoint(id) {
+  if (!id) return null;
+  if (!savedShortPoints) {
+    savedShortPoints = new Map();
+    try {
+      for (const [key, point] of JSON.parse(localStorage.getItem(SHORT_POINT_KEY) || '[]')) {
+        const valid = validMapPoint(point?.[1], point?.[0]);
+        if (typeof key === 'string' && valid) savedShortPoints.set(key, valid);
+      }
+    } catch { /* A fresh cache can be rebuilt from the saved itinerary links. */ }
+  }
+  return savedShortPoints.get(id) || null;
+}
+
+function lookupShortPoint(id) {
+  const cached = readShortPoint(id);
+  if (cached || !id || !navigator.onLine) return Promise.resolve(cached);
+  if (shortLookups.has(id)) return shortLookups.get(id);
+  const request = (async () => {
+    try {
+      const response = await fetch(SHARE_API_URL + '/map-location/' + id, { signal: AbortSignal.timeout(6500) });
+      if (!response.ok) throw new Error('無法辨識短連結');
+      const { point } = await response.json();
+      const valid = validMapPoint(point?.[1], point?.[0]);
+      if (valid) {
+        savedShortPoints.set(id, valid);
+        while (savedShortPoints.size > 240) savedShortPoints.delete(savedShortPoints.keys().next().value);
+        try { localStorage.setItem(SHORT_POINT_KEY, JSON.stringify([...savedShortPoints])); } catch { /* The map still works without a persistent cache. */ }
+      }
+      return valid;
+    } catch {
+      shortLookups.delete(id);
+      return null;
+    }
+  })();
+  shortLookups.set(id, request);
+  return request;
+}
+
 function tripMapDays(trip) {
   return trip.planDays.map(day => {
     const items = day.items.filter(item => String(item.map || '').trim());
@@ -43,21 +94,52 @@ function tripMapDays(trip) {
       date: day.date,
       stops: items.map((item, i) => ({
         name: item.activity || '未命名地點', time: item.time, url: mapUrl(item.map), order: i + 1,
-        point: pointFromText(item.coordinates) || pointFromMapLink(item.map),
+        point: pointFromText(item.coordinates) || pointFromMapLink(item.map) || readShortPoint(googleShortId(item.map)),
       })),
     };
   });
 }
 
-function updateLocationHint(row) {
+function updateLocationHint(row, tryShortLink = false) {
   const input = row.querySelector('[data-field="map"]');
   const coords = row.querySelector('[data-field="coordinates"]');
   const status = row.querySelector('[data-location-hint]');
   if (!input || !coords || !status) return;
-  status.textContent = !input.value.trim() ? '沒有連結的行程不會出現在地圖。'
-    : pointFromText(coords.value) || pointFromMapLink(input.value) ? '已定位，可在旅程地圖查看。'
-    : '這個連結沒有可讀座標。可在 Google Maps 查看地點，複製緯度、經度貼到下方。';
-  row.querySelector('[data-location-details]').hidden = !input.value.trim();
+  clearTimeout(locationHintTimers.get(row));
+  const link = input.value.trim();
+  const shortId = googleShortId(link);
+  const point = pointFromText(coords.value) || pointFromMapLink(link) || readShortPoint(shortId);
+  const fallback = '這個連結找不到可用的地標座標。可換一個地標連結，或在下方手動補座標。';
+  status.textContent = !link ? '沒有連結的行程不會出現在地圖。' : point ? '已定位，可在旅程地圖查看。'
+    : shortId ? '會自動辨識這個 Google Maps 短連結。' : fallback;
+  row.querySelector('[data-location-details]').hidden = !link;
+  if (!tryShortLink || !shortId || point) return;
+  status.textContent = navigator.onLine ? '正在辨識 Google Maps 地標…' : '連上網路後會嘗試辨識 Google Maps 地標。';
+  locationHintTimers.set(row, setTimeout(async () => {
+    if (!row.isConnected || link !== input.value.trim()) return;
+    const resolved = await lookupShortPoint(shortId);
+    if (row.isConnected && link === input.value.trim() && !coords.value) {
+      status.textContent = resolved ? '已辨識 Google Maps 地標，可直接儲存。' : fallback;
+    }
+  }, 320));
+}
+
+async function resolveMapShortLinks(view) {
+  const stops = view.days.flatMap(day => day.stops).filter(stop => !stop.point && googleShortId(stop.url));
+  if (!stops.length || !navigator.onLine) return;
+  view.locating = true;
+  view.status.textContent = '正在辨識 ' + stops.length + ' 個 Google Maps 短連結…';
+  renderMapSelection(view);
+  let cursor = 0;
+  async function next() {
+    while (travelMapView === view && cursor < stops.length) {
+      const stop = stops[cursor++];
+      stop.point = await lookupShortPoint(googleShortId(stop.url));
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, stops.length) }, next));
+  view.locating = false;
+  if (travelMapView === view) { view.status.textContent = ''; renderMapSelection(view); }
 }
 
 function mapResourcePath(value) {
@@ -100,6 +182,7 @@ function makeTripMapStyle(cacheName) {
       layer('station-labels', 'symbol', 'poi', { minzoom: 15, filter: station, layout: { 'text-field': label, 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0, .8] }, paint: { 'text-color': '#4b5879', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } }),
       { id: 'plan-order', source: 'route', type: 'line', filter: ['==', ['get', 'verified'], false], paint: { 'line-color': '#507764', 'line-width': 2.5, 'line-dasharray': [2, 2] } },
       { id: 'walking-route', source: 'route', type: 'line', filter: ['==', ['get', 'verified'], true], paint: { 'line-color': '#26674f', 'line-width': 4 } },
+      { id: 'route-hit', source: 'route', type: 'line', paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 24 } },
     ],
   };
 }
@@ -211,30 +294,89 @@ function selectedMapDays(view) {
   return day < 0 ? view.days : [view.days[day]].filter(Boolean);
 }
 
+function legacyWalkingSegments(geometry, stops) {
+  const points = geometry?.coordinates;
+  if (geometry?.type !== 'LineString' || !points?.length) return [];
+  let start = 0;
+  return stops.slice(1).map((stop, index) => {
+    let end = points.length - 1;
+    if (index < stops.length - 2) {
+      let best = Infinity;
+      for (let i = start; i < points.length; i++) {
+        const delta = (points[i][0] - stop.point[0]) ** 2 + (points[i][1] - stop.point[1]) ** 2;
+        if (delta < best) { best = delta; end = i; }
+      }
+    }
+    const segment = points.slice(start, end + 1);
+    start = end;
+    return segment;
+  });
+}
+
+function dayRouteFeatures(day, walking) {
+  const resolved = day.stops.every(stop => stop.point);
+  const legs = resolved ? (walking?.legs || legacyWalkingSegments(walking, day.stops)) : [];
+  return day.stops.slice(1).flatMap((to, i) => {
+    const from = day.stops[i];
+    if (!from.point || !to.point || from.point.join(',') === to.point.join(',')) return [];
+    const coords = legs[i];
+    const verified = coords?.length >= 2;
+    return [{
+      type: 'Feature',
+      properties: {
+        verified, fromName: from.name, toName: to.name,
+        origin: from.point.slice().reverse().join(','), destination: to.point.slice().reverse().join(','),
+      },
+      geometry: { type: 'LineString', coordinates: verified ? coords : [from.point, to.point] },
+    }];
+  });
+}
+
+function googleRouteLink(properties) {
+  const url = new URL('https://www.google.com/maps/dir/');
+  url.search = new URLSearchParams({
+    api: '1', origin: properties.origin, destination: properties.destination, dir_action: 'navigate',
+    ...(properties.verified ? { travelmode: 'walking' } : {}),
+  });
+  return url.href;
+}
+
+function routeNavigationLink(properties, text) {
+  const link = document.createElement('a');
+  link.href = googleRouteLink(properties);
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = text;
+  return link;
+}
+
+function bindMapRoutes(view, map) {
+  map.on('mouseenter', 'route-hit', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'route-hit', () => { map.getCanvas().style.cursor = ''; });
+  map.on('click', 'route-hit', event => {
+    const properties = event.features?.[0]?.properties;
+    if (!properties) return;
+    view.routePopup?.remove();
+    const content = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = properties.fromName + ' → ' + properties.toName;
+    content.append(title, document.createElement('br'), routeNavigationLink(properties, '在 Google Maps 導航 ↗'));
+    view.routePopup = new view.lib.Popup({ offset: 10 }).setLngLat(event.lngLat).setDOMContent(content).addTo(map);
+  });
+}
+
 function renderMapSelection(view) {
   const days = selectedMapDays(view);
   const stops = days.flatMap(day => day.stops);
   const points = stops.filter(stop => stop.point);
   const unresolved = stops.filter(stop => !stop.point);
   const { warnings, canvas, legend } = view;
-  const features = [];
-  for (const day of days) {
-    const walking = view.routes[day.date];
-    if (walking) features.push({ type: 'Feature', properties: { verified: true }, geometry: walking });
-    else {
-      let sequence = [];
-      function finish() {
-        if (sequence.length >= 2) features.push({ type: 'Feature', properties: { verified: false }, geometry: { type: 'LineString', coordinates: sequence } });
-        sequence = [];
-      }
-      for (const stop of day.stops) if (stop.point) sequence.push(stop.point); else finish();
-      finish();
-    }
-  }
+  const features = days.flatMap(day => dayRouteFeatures(day, view.routes[day.date]));
+  view.routePopup?.remove();
   canvas.hidden = !points.length;
-  legend.textContent = points.length ? '虛線：行程順序　・　綠色實線：已查詢的步行路線' : '目前沒有已定位的地標。';
+  legend.textContent = points.length ? '虛線：行程順序　・　綠色實線：步行路線　・　點路線可開啟導航' : '目前沒有已定位的地標。';
   warnings.replaceChildren();
-  if (unresolved.length) {
+  if (unresolved.length && !view.locating) {
     const message = document.createElement('p');
     message.textContent = unresolved.length + ' 個行程有地圖連結，但找不到座標。請回到行程編輯補上。';
     warnings.append(message);
@@ -262,7 +404,20 @@ function renderMapSelection(view) {
     credit.textContent = '步行路線：FOSSGIS / OSRM · 回報圖資問題';
     warnings.append(credit);
   }
-  view.save.disabled = view.isOfflinePage || !points.length || offlineDownloadRunning;
+  if (features.length) {
+    const detail = document.createElement('details');
+    const title = document.createElement('summary');
+    title.textContent = '路段導航';
+    const list = document.createElement('ul');
+    for (const { properties } of features) {
+      const item = document.createElement('li');
+      item.append(routeNavigationLink(properties, properties.fromName + ' → ' + properties.toName + ' ↗'));
+      list.append(item);
+    }
+    detail.append(title, list);
+    warnings.append(detail);
+  }
+  view.save.disabled = view.isOfflinePage || view.locating || !points.length || offlineDownloadRunning;
   if (!view.map) return;
   view.markers.forEach(marker => marker.remove());
   view.markers = points.map(stop => makeMapMarker(view, stop));
@@ -282,12 +437,12 @@ async function lookupWalkingRoute(view, day, button) {
   button.textContent = '查詢步行路線中…';
   try {
     const coords = day.stops.map(stop => stop.point.join(',')).join(';');
-    const response = await fetch('https://routing.openstreetmap.de/routed-foot/route/v1/driving/' + coords + '?overview=full&geometries=geojson&steps=false', { signal: AbortSignal.timeout(15000) });
+    const response = await fetch('https://routing.openstreetmap.de/routed-foot/route/v1/driving/' + coords + '?overview=false&geometries=geojson&steps=true', { signal: AbortSignal.timeout(15000) });
     const result = response.ok ? await response.json() : null;
-    const route = result?.routes?.[0]?.geometry;
-    if (route?.type !== 'LineString' || route.coordinates.length < 2) throw new Error();
+    const legs = result?.routes?.[0]?.legs?.map(leg => leg.steps.flatMap(step => step.geometry.coordinates));
+    if (legs?.length !== day.stops.length - 1 || !legs.some(points => points.length >= 2)) throw new Error();
     if (travelMapView !== view) return;
-    view.routes[day.date] = route;
+    view.routes[day.date] = { legs };
     if (view.hasPackage) view.status.textContent = '步行路線已有更新，重新下載即可在離線時查看。';
     renderMapSelection(view);
   } catch {
@@ -315,6 +470,7 @@ async function mountTripMap(container, trip, offline = null) {
   if (offline) view.save.hidden = true;
   renderMapSelection(view);
   try {
+    if (!offline) await resolveMapShortLinks(view);
     const packages = offline ? [offline] : await listMapPackages(mapPackageStem(trip.id));
     if (travelMapView !== view || !container.isConnected) return;
     const existing = packages.find(pack => pack.scope === 'all') || packages[0];
@@ -334,7 +490,11 @@ async function mountTripMap(container, trip, offline = null) {
     });
     view.map = map;
     map.addControl(new view.lib.NavigationControl({ showCompass: false }), 'top-right');
-    map.on('load', () => { if (travelMapView === view) renderMapSelection(view); });
+    map.on('load', () => {
+      if (travelMapView !== view) return;
+      bindMapRoutes(view, map);
+      renderMapSelection(view);
+    });
   } catch (error) {
     console.warn('無法載入旅程地圖', error);
     if (travelMapView === view) view.legend.textContent = '裝置目前無法載入地圖。可先從行程使用地圖連結。';

@@ -448,7 +448,10 @@ function timeEditor(container, item = {}, collapsed = false) {
   mapField.closest('.time-main').after(geo);
   const coordinates = geo.querySelector('input');
   coordinates.value = item.coordinates || '';
-  mapField.addEventListener('input', () => updateLocationHint(row));
+  mapField.addEventListener('input', () => updateLocationHint(row, true));
+  row.querySelector('[data-toggle-time]').addEventListener('click', () => {
+    if (!row.querySelector('.time-editor-body').hidden) updateLocationHint(row, true);
+  });
   coordinates.addEventListener('input', () => updateLocationHint(row));
   updateLocationHint(row);
   row.querySelector('[data-remove-time]').addEventListener('click', async () => { const name = row.querySelector('[data-field="activity"]').value.trim() || row.querySelector('[data-field="time"]').value || '這個時間點'; if (!await confirmDeletion(`確定要刪除「${name}」嗎？`, '刪除行程時間點')) return; const day = row.closest('.day-editor'); row.remove(); if (day) updateDaySummary(day); }); container.append(row); if (!collapsed) requestAnimationFrame(() => refreshAutoGrow(row)); return row;

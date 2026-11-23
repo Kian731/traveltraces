@@ -1,5 +1,6 @@
 import { accountRequest } from './account.js';
 import { serveMapAsset } from './map-assets.js';
+import { serveMapLocation } from './map-location.js';
 
 function allowedOrigins(env) {
 	return String(env.ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
@@ -82,6 +83,10 @@ export default {
 
 		if (url.pathname.startsWith('/map-assets/')) {
 			return serveMapAsset(request, env, requestOriginIsAllowed(request, env), corsHeaders(request, env));
+		}
+
+		if (url.pathname.startsWith('/map-location/')) {
+			return serveMapLocation(request, env, requestOriginIsAllowed(request, env), corsHeaders(request, env));
 		}
 
 		if (request.method === 'POST' && url.pathname === '/auth/check') {
