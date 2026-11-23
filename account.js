@@ -393,6 +393,7 @@ function startAccountSync() {
   if (!accountSession) return route();
   disableAccountEdits(true);
   app.innerHTML = '<section class="page-intro"><p role="status" data-account-loading>正在載入雲端記錄…</p></section>';
+  if (location.hash.startsWith('#offline-maps')) route();
   setAccountStatus('正在載入雲端記錄…');
   syncAccount();
   let lastCheck = 0;
