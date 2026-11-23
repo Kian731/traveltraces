@@ -128,7 +128,7 @@ function loadData() {
   return defaultData();
 }
 
-let data = loadData();
+let data = accountSession ? { ...defaultData(), trips: [] } : loadData();
 let homeStatsScope = 'all';
 let activePlanDraft = [];
 let activeExpenseDraft = [];
@@ -142,10 +142,24 @@ let checklistSyncState = { tripId: '', timer: null, running: false, queued: fals
 function shadeHex(hex, amount = -22) { const clean = String(hex || '').replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(clean)) return DEFAULT_THEME.accent; const value = Number.parseInt(clean, 16); const channel = shift => Math.max(0, Math.min(255, shift + amount)); return `#${[value >> 16, value >> 8 & 255, value & 255].map(channel => channel.toString(16).padStart(2, '0')).join('')}`; }
 function applyTheme(theme = data.settings.theme || DEFAULT_THEME) { const root = document.documentElement; root.style.setProperty('--accent', theme.accent || DEFAULT_THEME.accent); root.style.setProperty('--accent-hover', shadeHex(theme.accent || DEFAULT_THEME.accent)); root.style.setProperty('--warm', theme.warm || DEFAULT_THEME.warm); root.style.setProperty('--bg', theme.background || DEFAULT_THEME.background); }
 applyTheme();
-saveData();
+if (!accountSession) saveData();
 
-function saveData() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); return true; } catch (error) { console.error('無法儲存旅行資料', error); alert('瀏覽器儲存空間不足，請改用較小的封面圖片或先備份並移除不需要的圖片。'); return false; } }
+function saveData() {
+  if (accountSession) return saveAccountData();
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); return true; }
+  catch (error) { console.error('無法儲存旅行資料', error); alert('瀏覽器儲存空間不足，請改用較小的封面圖片或先備份並移除不需要的圖片。'); return false; }
+}
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
+function cssImageUrl(value) {
+  const safe = String(value || '').replaceAll('\\', '\\\\').replaceAll('"', '\\"').replace(/[\r\n\f]/g, '');
+  return 'url("' + safe + '")';
+}
+function mapUrl(value) {
+  try {
+    const url = new URL(value);
+    return ['https:', 'http:', 'geo:', 'maps:', 'comgooglemaps:'].includes(url.protocol) ? url.href : '';
+  } catch { return ''; }
+}
 function linkifyText(value) {
   const text = String(value ?? ''); const pattern = /(?:https?:\/\/|www\.)[^\s<>"']+/gi; let output = ''; let lastIndex = 0;
   for (const match of text.matchAll(pattern)) {
@@ -214,7 +228,7 @@ function pageBack(actions = '') { return `<div class="page-back"><button class="
 function tripCard(trip) {
   const destination = countryOf(trip.country);
   const upcoming = isUpcoming(trip); const remaining = countdown(trip); const complete = isRecordComplete(trip);
-  return `<a class="trip-card ${upcoming ? 'upcoming-card' : 'past-card'}" href="#trip/${encodeURIComponent(trip.id)}" aria-label="查看${escapeHtml(trip.title)}旅程">${upcoming ? `<div class="trip-countdown"><b>${remaining.value}</b><span>${remaining.label}</span></div>` : ''}<div class="trip-thumb" role="img" aria-label="${escapeHtml(trip.country)}旅行風景" style="--image:url('${tripImage(trip)}');--fallback:${destination.color}"></div><div class="trip-body"><div class="memory-mobile-head"><strong>${escapeHtml(trip.country)}</strong><span>${escapeHtml(routeCodeText(trip))}</span></div><p class="memory-trip-title">${escapeHtml(trip.title)}</p><div class="trip-title-row"><h3>${escapeHtml(trip.title)}</h3><p class="trip-route">${escapeHtml(routeText(trip))}</p></div><div class="record-row"><span class="status ${upcoming ? '' : 'past'}">${upcoming ? '即將出發' : '旅程回憶'}</span>${complete ? '' : '<span class="record-state">待完成記錄</span>'}</div><p class="trip-meta"><span>${formatDate(trip.start)}－${formatDate(trip.end)}</span><span>${tripDays(trip)}</span></p><div class="trip-cities">${(trip.cities.length ? trip.cities : ['尚未選擇']).map(city => `<span class="city-tag">${escapeHtml(city)}</span>`).join('')}</div></div></a>`;
+  return `<a class="trip-card ${upcoming ? 'upcoming-card' : 'past-card'}" href="#trip/${encodeURIComponent(trip.id)}" aria-label="查看${escapeHtml(trip.title)}旅程">${upcoming ? `<div class="trip-countdown"><b>${remaining.value}</b><span>${remaining.label}</span></div>` : ''}<div class="trip-thumb" role="img" aria-label="${escapeHtml(trip.country)}旅行風景" style="--image:${escapeHtml(cssImageUrl(tripImage(trip)))};--fallback:${normalizeHex(destination.color, DEFAULT_THEME.accent)}"></div><div class="trip-body"><div class="memory-mobile-head"><strong>${escapeHtml(trip.country)}</strong><span>${escapeHtml(routeCodeText(trip))}</span></div><p class="memory-trip-title">${escapeHtml(trip.title)}</p><div class="trip-title-row"><h3>${escapeHtml(trip.title)}</h3><p class="trip-route">${escapeHtml(routeText(trip))}</p></div><div class="record-row"><span class="status ${upcoming ? '' : 'past'}">${upcoming ? '即將出發' : '旅程回憶'}</span>${complete ? '' : '<span class="record-state">待完成記錄</span>'}</div><p class="trip-meta"><span>${formatDate(trip.start)}－${formatDate(trip.end)}</span><span>${tripDays(trip)}</span></p><div class="trip-cities">${(trip.cities.length ? trip.cities : ['尚未選擇']).map(city => `<span class="city-tag">${escapeHtml(city)}</span>`).join('')}</div></div></a>`;
 }
 
 function notesMarkup(notes, context = 'home') {
@@ -232,10 +246,10 @@ function renderHome() {
   const visitedCountries = Object.entries(data.settings.countries).filter(([name]) => data.trips.some(trip => trip.country === name));
   const nextCountdown = nearestTripCountdown(upcoming);
   const hero = countryOf('日本');
-  app.innerHTML = `<section class="hero" style="--hero-image:url('${HOME_HERO_IMAGE}');--fallback:${hero.color}"><div class="hero-content"><p class="eyebrow">Personal travel archive</p><h1>把走過的地方，<br>好好收藏起來。</h1><p>從出發前的規劃，到旅途後的回憶，都放在同一個簡單、安靜的地方。</p><button class="button button-primary" data-action="new">規劃一趟新旅程</button></div></section>
+  app.innerHTML = `<section class="hero" style="--hero-image:${escapeHtml(cssImageUrl(HOME_HERO_IMAGE))};--fallback:${normalizeHex(hero.color, DEFAULT_THEME.accent)}"><div class="hero-content"><p class="eyebrow">Personal travel archive</p><h1>把走過的地方，<br>好好收藏起來。</h1><p>從出發前的規劃，到旅途後的回憶，都放在同一個簡單、安靜的地方。</p><button class="button button-primary" data-action="new">規劃一趟新旅程</button></div></section>
   <div class="stats" aria-label="旅行統計"><div class="stats-scope"><span class="scope-mark" aria-hidden="true">🏅</span><div><button class="${homeStatsScope === 'all' ? 'active' : ''}" data-stats-scope="all">總和</button><button class="${homeStatsScope === 'year' ? 'active' : ''}" data-stats-scope="year">今年</button></div></div><div class="stat"><b>${countries}</b><span>個國家</span></div><div class="stat"><b>${cities}</b><span>個城市</span></div><div class="stat"><b>${totalDays}</b><span>個旅行日</span></div></div>
   <section class="section"><div class="section-head"><div><p class="eyebrow">Destinations</p><h2>目的地收藏</h2></div><div class="carousel-controls"><button class="icon-button" data-carousel="prev" aria-label="上一個目的地">←</button><button class="icon-button" data-carousel="next" aria-label="下一個目的地">→</button></div></div>
-    <div class="country-carousel" id="country-carousel">${visitedCountries.map(([name, item]) => { const count = data.trips.filter(trip => trip.country === name).length; return `<button class="country-card" data-country="${escapeHtml(name)}" style="--image:url('${item.image}');--fallback:${item.color}"><span class="country-emoji">${item.emoji}</span><span><strong>${escapeHtml(name)}</strong><br>${count} 趟旅程</span></button>`; }).join('') || emptyState('還沒有目的地收藏', '建立第一趟旅程後，目的地會出現在這裡。')}</div>
+    <div class="country-carousel" id="country-carousel">${visitedCountries.map(([name, item]) => { const count = data.trips.filter(trip => trip.country === name).length; return `<button class="country-card" data-country="${escapeHtml(name)}" style="--image:${escapeHtml(cssImageUrl(item.image))};--fallback:${normalizeHex(item.color, DEFAULT_THEME.accent)}"><span class="country-emoji">${escapeHtml(item.emoji)}</span><span><strong>${escapeHtml(name)}</strong><br>${count} 趟旅程</span></button>`; }).join('') || emptyState('還沒有目的地收藏', '建立第一趟旅程後，目的地會出現在這裡。')}</div>
   </section>
   <section class="section"><div class="section-head"><div><p class="eyebrow">Up next</p><div class="next-title-row"><h2>即將出發</h2>${nextCountdown ? `<div class="next-countdown ${nextCountdown.active ? 'active' : ''}"><span>${escapeHtml(nextCountdown.trip.title)}</span><b ${nextCountdown.active ? '' : `data-next-countdown="${escapeHtml(nextCountdown.trip.start)}"`}>${escapeHtml(nextCountdown.text)}</b></div>` : ''}</div></div></div><div class="trip-list">${upcoming.length ? upcoming.map(tripCard).join('') : emptyState('還沒有即將出發的旅程', '新增日期與目的地，開始慢慢期待。')}</div></section>
   <section class="section" id="memories"><div class="section-head"><div><p class="eyebrow">Memories</p><h2>旅行回憶</h2></div></div><div class="trip-list">${past.length ? past.map(tripCard).join('') : emptyState('回憶正在累積', '完成的旅程會收藏在這裡。', false)}</div></section>
@@ -246,7 +260,7 @@ function renderHome() {
 function countryNotes(country) { const notes = data.countryNotes[country]; return Array.isArray(notes) && notes.length ? notes : defaultNotes; }
 function renderCountry(country, city = '') {
   const destination = countryOf(country); const countryTrips = data.trips.filter(trip => trip.country === country); const visitedCities = [...new Set(countryTrips.flatMap(trip => trip.cities))]; const trips = countryTrips.filter(trip => !city || trip.cities.includes(city));
-  app.innerHTML = `${pageBack()}<section class="page-intro"><p class="eyebrow">Destination archive</p><h1>${destination.emoji} ${escapeHtml(country)}</h1><p class="section-copy">${countryTrips.length} 趟旅程，造訪過 ${visitedCities.length} 個城市。</p><div class="cover-strip" role="img" aria-label="${escapeHtml(country)}旅行風景" style="--cover:url('${destination.image}');--fallback:${destination.color}"></div></section>
+  app.innerHTML = `${pageBack()}<section class="page-intro"><p class="eyebrow">Destination archive</p><h1>${escapeHtml(destination.emoji)} ${escapeHtml(country)}</h1><p class="section-copy">${countryTrips.length} 趟旅程，造訪過 ${visitedCities.length} 個城市。</p><div class="cover-strip" role="img" aria-label="${escapeHtml(country)}旅行風景" style="--cover:${escapeHtml(cssImageUrl(destination.image))};--fallback:${normalizeHex(destination.color, DEFAULT_THEME.accent)}"></div></section>
   <section class="section"><div class="section-head"><div><p class="eyebrow">My history</p><h2>我的 ${escapeHtml(country)} 旅程</h2></div><button class="button button-primary" data-action="new" data-country="${escapeHtml(country)}">新增旅程</button></div><div class="filters"><button class="filter ${city ? '' : 'active'}" data-city="" data-country="${escapeHtml(country)}">全部</button>${visitedCities.map(name => `<button class="filter ${city === name ? 'active' : ''}" data-city="${escapeHtml(name)}" data-country="${escapeHtml(country)}">${escapeHtml(name)}</button>`).join('')}</div><div class="trip-list">${trips.length ? trips.map(tripCard).join('') : emptyState(city ? `還沒有 ${city} 的紀錄` : `還沒有 ${country} 的旅程`, '新增一趟旅程，建立你的目的地收藏。')}</div></section>
   <section class="section country-notes"><div class="section-head"><div><p class="eyebrow">Quick notes</p><h2>出發小筆記</h2></div></div><div class="note-grid">${countryNotes(country).map((note, index) => `<article class="note-card"><div class="topline"><h3>${escapeHtml(note[0])}</h3><button class="icon-button" data-action="edit-country-note" data-country="${escapeHtml(country)}" data-index="${index}" aria-label="編輯${escapeHtml(note[0])}">✎</button></div><p>${linkifyText(note[1])}</p><button class="text-button" data-action="read-country-note" data-country="${escapeHtml(country)}" data-index="${index}">閱讀更多 →</button></article>`).join('')}</div></section>`;
 }
@@ -285,23 +299,25 @@ function renderTrip(id) {
   const travelDetails = trip.travelScope === 'domestic' ? `<div><span>旅遊類型</span><b>國內旅遊</b></div><div><span>主要交通</span><b>${escapeHtml([trip.domesticTransport, trip.transportDetail].filter(Boolean).join(' · ') || '尚未填寫')}</b></div>` : `<div><span>出國航班</span><b>${escapeHtml([trip.airline, trip.flight].filter(Boolean).join(' ') || '尚未填寫')}</b></div><div><span>回國航班</span><b>${escapeHtml([trip.sameReturnAirline ? trip.airline : trip.returnAirline, trip.returnFlight].filter(Boolean).join(' ') || '尚未填寫')}</b></div>`;
   const expenseContent = trip.expenses.length ? `${expenseChartMarkup(trip, gross, personal)}${expenseListMarkup(trip)}` : emptyState('還沒有支出紀錄', '記下每日住宿、交通與餐飲，預算會更清楚。', false);
   const topActions = `<button class="button button-ghost" data-action="print-trip" data-id="${escapeHtml(trip.id)}">匯出 PDF</button><button class="button button-ghost" data-action="share-trip" data-id="${escapeHtml(trip.id)}">分享旅程</button>`;
-  app.innerHTML = `${pageBack(topActions)}<section class="trip-hero"><div class="trip-hero-copy"><p class="eyebrow">Trip record</p><div class="record-row"><h1>${escapeHtml(trip.title)}</h1>${isRecordComplete(trip) ? '' : '<span class="record-state">待完成記錄</span>'}</div><p class="route-large">${escapeHtml(routeText(trip))}</p><div class="detail-grid"><div class="detail-date-row"><div><span>旅行日期</span><b>${formatDate(trip.start)}－${formatDate(trip.end)}</b></div><div><span>旅行天數</span><b>${tripDays(trip)}</b></div></div>${travelDetails}<div><span>同行</span><b>${escapeHtml(trip.companions || `${trip.people || 1} 人`)}</b></div><div><span>預算</span><b>${trip.budget ? escapeHtml(tripMoney(trip, trip.budget)) : '尚未設定'}</b></div><div class="detail-status"><span>狀態</span><b>${escapeHtml(trip.status || '規劃中')}</b></div></div></div><div class="trip-hero-image" role="img" aria-label="${escapeHtml(trip.country)}旅行風景" style="--trip-image:url('${tripImage(trip)}');--fallback:${destination.color}"></div></section>
+  app.innerHTML = `${pageBack(topActions)}<section class="trip-hero"><div class="trip-hero-copy"><p class="eyebrow">Trip record</p><div class="record-row"><h1>${escapeHtml(trip.title)}</h1>${isRecordComplete(trip) ? '' : '<span class="record-state">待完成記錄</span>'}</div><p class="route-large">${escapeHtml(routeText(trip))}</p><div class="detail-grid"><div class="detail-date-row"><div><span>旅行日期</span><b>${formatDate(trip.start)}－${formatDate(trip.end)}</b></div><div><span>旅行天數</span><b>${tripDays(trip)}</b></div></div>${travelDetails}<div><span>同行</span><b>${escapeHtml(trip.companions || `${trip.people || 1} 人`)}</b></div><div><span>預算</span><b>${trip.budget ? escapeHtml(tripMoney(trip, trip.budget)) : '尚未設定'}</b></div><div class="detail-status"><span>狀態</span><b>${escapeHtml(trip.status || '規劃中')}</b></div></div></div><div class="trip-hero-image" role="img" aria-label="${escapeHtml(trip.country)}旅行風景" style="--trip-image:${escapeHtml(cssImageUrl(tripImage(trip)))};--fallback:${normalizeHex(destination.color, DEFAULT_THEME.accent)}"></div></section>
   <div class="trip-record-actions trip-content-tabs" role="tablist" aria-label="旅程內容"><button class="button active" type="button" role="tab" aria-selected="true" aria-controls="trip-itinerary" data-trip-tab="itinerary">每日行程</button><button class="button" type="button" role="tab" aria-selected="false" aria-controls="trip-expenses" data-trip-tab="expenses">旅行支出</button><button class="button" type="button" role="tab" aria-selected="false" aria-controls="trip-checklist" data-trip-tab="checklist">準備清單</button></div>
-  <div class="trip-tab-panels"><section class="section trip-tab-panel" id="trip-itinerary" data-trip-panel="itinerary" role="tabpanel"><div class="section-head"><div><p class="eyebrow">Itinerary</p><h2>每日行程</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="itinerary">編輯</button></div>${trip.planDays.length ? `<div class="day-list">${trip.planDays.map(day => `<article class="day-card"><button class="day-date" type="button" data-toggle-trip-day aria-expanded="true"><span>${escapeHtml(formatDate(day.date, { month: 'short', day: 'numeric', weekday: 'short' }))}</span><span class="day-date-meta"><b>${day.items.length} 個行程</b><i aria-hidden="true">⌃</i></span></button><div class="day-items">${sortPlanItems(day.items).map(item => `<div class="timeline-item"><time>${escapeHtml(item.time || '未定')}</time><div><h3>${escapeHtml(item.activity || '未命名行程')}</h3><p class="transport preserve-lines">${escapeHtml(item.transport || '交通未定')}</p>${item.map ? `<a href="${escapeHtml(item.map)}" target="_blank" rel="noopener">開啟地圖 ↗</a>` : ''}</div><p class="preserve-lines">${linkifyText(item.note)}</p></div>`).join('')}</div></article>`).join('')}</div>` : emptyState('還沒有安排行程', '可以先記下最期待的一個地方。', false)}</section>
+  <div class="trip-tab-panels"><section class="section trip-tab-panel" id="trip-itinerary" data-trip-panel="itinerary" role="tabpanel"><div class="section-head"><div><p class="eyebrow">Itinerary</p><h2>每日行程</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="itinerary">編輯</button></div>${trip.planDays.length ? `<div class="day-list">${trip.planDays.map(day => `<article class="day-card"><button class="day-date" type="button" data-toggle-trip-day aria-expanded="true"><span>${escapeHtml(formatDate(day.date, { month: 'short', day: 'numeric', weekday: 'short' }))}</span><span class="day-date-meta"><b>${day.items.length} 個行程</b><i aria-hidden="true">⌃</i></span></button><div class="day-items">${sortPlanItems(day.items).map(item => `<div class="timeline-item"><time>${escapeHtml(item.time || '未定')}</time><div><h3>${escapeHtml(item.activity || '未命名行程')}</h3><p class="transport preserve-lines">${escapeHtml(item.transport || '交通未定')}</p>${mapUrl(item.map) ? `<a href="${escapeHtml(mapUrl(item.map))}" target="_blank" rel="noopener">開啟地圖 ↗</a>` : ''}</div><p class="preserve-lines">${linkifyText(item.note)}</p></div>`).join('')}</div></article>`).join('')}</div>` : emptyState('還沒有安排行程', '可以先記下最期待的一個地方。', false)}</section>
   <section class="section trip-tab-panel" id="trip-expenses" data-trip-panel="expenses" role="tabpanel" hidden><div class="section-head"><div><p class="eyebrow">Expenses</p><h2>旅行支出</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="expenses">編輯</button></div>${expenseContent}</section>
   <section class="section trip-tab-panel" id="trip-checklist" data-trip-panel="checklist" role="tabpanel" hidden><div class="section-head"><div><p class="eyebrow">Checklist</p><h2>旅程準備清單</h2></div><button class="button button-ghost" data-action="edit" data-id="${escapeHtml(trip.id)}" data-tab="checklist">編輯</button></div><div class="check-progress"><span style="--progress:${checklistItems.length ? checked / checklistItems.length * 100 : 0}%"></span></div><p class="section-copy">已完成 ${checked}／${checklistItems.length} 項 · ${canQuickCheck ? '可直接勾選更新' : '旅程已結束，請由編輯旅程更新'}</p><div class="checklist-view ${canQuickCheck ? '' : 'locked'}">${trip.checklist.map((group, groupIndex) => `<article><h3>${escapeHtml(group.category)}</h3>${group.items.map((item, itemIndex) => `<label class="read-check"><input type="checkbox" data-quick-check data-trip-id="${escapeHtml(trip.id)}" data-group-index="${groupIndex}" data-item-index="${itemIndex}" ${item.checked ? 'checked' : ''} ${canQuickCheck ? '' : 'disabled'}><span>${escapeHtml(item.name)}</span></label>`).join('')}</article>`).join('')}</div></section></div>`;
   if (preferredTab !== 'itinerary') switchTripContentTab(preferredTab);
 }
 
-function loadShareRecords() {
+function accountStorageKey(key) { return accountSession ? key + ':' + accountSession.accountId : key; }
+
+function loadShareRecords(key = accountStorageKey(SHARE_RECORDS_STORAGE)) {
   try {
-    const records = JSON.parse(localStorage.getItem(SHARE_RECORDS_STORAGE) || '[]');
+    const records = JSON.parse(localStorage.getItem(key) || '[]');
     return Array.isArray(records) ? records.filter(record => record?.id && (record?.deleteToken || record?.editToken)).map(record => ({ ...record, version: Number(record.version) || 1, updatedAt: Number(record.updatedAt) || Number(record.createdAt) || 0 })) : [];
   } catch { return []; }
 }
 
 function saveShareRecords(records) {
-  localStorage.setItem(SHARE_RECORDS_STORAGE, JSON.stringify(records.slice(0, 100)));
+  localStorage.setItem(accountStorageKey(SHARE_RECORDS_STORAGE), JSON.stringify(records.slice(0, 100)));
 }
 
 function onlineShareUrl(id) {
@@ -324,7 +340,7 @@ function shareExpiryDate(expiresAt) {
 }
 
 function shareSettingsCard() {
-  const records = loadShareRecords(); const hasAdminKey = Boolean(localStorage.getItem(SHARE_KEY_STORAGE));
+  const records = loadShareRecords(); const hasAdminKey = Boolean(localStorage.getItem(accountStorageKey(SHARE_KEY_STORAGE)));
   const list = records.length ? records.map(record => {
     const expired = Number(record.expiresAt) <= Date.now(); const canEdit = Boolean(record.editToken);
     const ownershipAction = record.deleteToken ? (expired ? '移除紀錄' : '撤銷') : '停止同步';
@@ -352,6 +368,7 @@ function templateEditor(group = { category: '', items: [] }) { return `<div clas
 function renderNotFound() { app.innerHTML = `${pageBack()}<section class="page-intro">${emptyState('找不到這個頁面', '連結可能已經變更，回首頁看看吧。', false)}<p style="text-align:center;margin-top:18px"><a class="button button-primary" href="#home">回到首頁</a></p></section>`; }
 
 function route() {
+  if (accountSession && !accountReady) return;
   const hash = decodeURIComponent(location.hash.slice(1) || 'home'); const [page, ...rest] = hash.split('/');
   clearInterval(homeCountdownTimer); clearInterval(shareRefreshTimer); shareRefreshTimer = null; activeSharedImport = null; activeCollaboration = null; activeOwnerSync = null; pendingSharedRefresh = null; document.body.classList.remove('readonly-share', 'collaborative-share'); document.title = DEFAULT_DOCUMENT_TITLE; applyTheme();
   if (page === 'home' || page === 'knowledge') renderHome(); else if (page === 'country' && rest[0]) renderCountry(rest[0]); else if (page === 'trip' && rest[0]) renderOwnedTrip(rest.join('/')); else if (page === 'share' && rest[0]) renderSharedTrip(rest.join('/')); else if (page === 'collab' && rest[0] && rest[1]) renderCollaborativeTrip(rest[0], rest[1]); else if (page === 'settings') renderSettings(); else renderNotFound();
@@ -372,7 +389,7 @@ function tripDateRange() {
 function planDateLabel(value) { return value ? `${formatDate(value, { month: 'short', day: 'numeric', weekday: 'short' })}` : '請先設定旅行日期'; }
 function refreshDayDateOptions() {
   const dates = tripDateRange(); const selects = [...modalContent.querySelectorAll('.day-input')];
-  selects.forEach(select => { const current = select.value; const used = new Set(selects.filter(item => item !== select).map(item => item.value)); const choices = dates.filter(date => date === current || !used.has(date)); if (current && !choices.includes(current)) choices.unshift(current); select.innerHTML = choices.length ? choices.map(date => `<option value="${date}" ${date === current ? 'selected' : ''}>${escapeHtml(planDateLabel(date))}</option>`).join('') : '<option value="">請先設定旅行日期</option>'; select.disabled = !choices.length; });
+  selects.forEach(select => { const current = select.value; const used = new Set(selects.filter(item => item !== select).map(item => item.value)); const choices = dates.filter(date => date === current || !used.has(date)); if (current && !choices.includes(current)) choices.unshift(current); select.innerHTML = choices.length ? choices.map(date => `<option value="${escapeHtml(date)}" ${date === current ? 'selected' : ''}>${escapeHtml(planDateLabel(date))}</option>`).join('') : '<option value="">請先設定旅行日期</option>'; select.disabled = !choices.length; });
 }
 function nextUnusedTripDate() { const used = new Set([...modalContent.querySelectorAll('.day-input')].map(input => input.value)); return tripDateRange().find(date => !used.has(date)) || ''; }
 function updateDaySummary(day) { const count = day.querySelectorAll('.time-editor').length; const target = day.querySelector('[data-day-count]'); if (target) target.textContent = `${count} 個時間點`; }
@@ -523,10 +540,10 @@ function compressCoverImage(file) {
     image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('無法讀取這張圖片')); }; image.src = url;
   });
 }
-function addCustomCity() {
+async function addCustomCity() {
   const input = modalContent.querySelector('#custom-city-input'); const city = input.value.trim(); const countryName = modalContent.querySelector('[name="country"]').value.trim(); if (!city || !countryName) return;
   if (!data.settings.countries[countryName]) data.settings.countries[countryName] = { emoji: '🌍', color: '#4f665b', image: '', cities: [], airports: [] };
-  const selected = [...modalContent.querySelectorAll('#city-chips input:checked')].map(item => item.value); if (!data.settings.countries[countryName].cities.includes(city)) data.settings.countries[countryName].cities.push(city); if (!selected.includes(city)) selected.push(city); saveData(); renderCityChips(countryName, selected); input.value = ''; showToast(`${city} 已加入城市選項`);
+  const selected = [...modalContent.querySelectorAll('#city-chips input:checked')].map(item => item.value); if (!data.settings.countries[countryName].cities.includes(city)) data.settings.countries[countryName].cities.push(city); if (!selected.includes(city)) selected.push(city); if (!await saveData()) return; renderCityChips(countryName, selected); input.value = ''; showToast(`${city} 已加入城市選項`);
 }
 
 function openTripEditor(id = '', forcedCountry = '', initialTab = 'overview') {
@@ -535,7 +552,7 @@ function openTripEditor(id = '', forcedCountry = '', initialTab = 'overview') {
   const countries = Object.keys(data.settings.countries); const country = countryOf(trip.country); const airlines = data.settings.airlinesByAirport[airportCode(trip.origin)] || [];
   const domestic = trip.travelScope === 'domestic'; const routeOptions = domestic ? country.cities : data.settings.originAirports; const destinationOptions = domestic ? country.cities : country.airports;
   const body = `<form id="trip-form"><div class="editor-tabs" role="tablist"><button type="button" data-editor-tab="overview">基本資料</button><button type="button" data-editor-tab="expenses">旅行支出</button><button type="button" data-editor-tab="itinerary">每日行程</button><button type="button" data-editor-tab="checklist">準備清單</button></div><p id="record-completion-notice" class="completion-notice">待完成記錄：可先儲存，之後再補齊出發地、目的地與旅行日期。</p>
-  <section class="editor-panel" data-panel="overview"><div class="form-grid">${formField('title', '旅程名稱', trip.title, 'text', 'required placeholder="例如：台南美食小旅行"')}<label>國家／地區<input name="country" list="country-list" value="${escapeHtml(trip.country)}" required placeholder="輸入或選擇國家">${datalist('country-list', countries)}</label><label class="full">旅遊類型<select name="travelScope"><option value="international" ${domestic ? '' : 'selected'}>國外旅遊</option><option value="domestic" ${domestic ? 'selected' : ''}>國內旅遊</option></select></label><div class="form-pair full route-fields"><label><span class="origin-label">${domestic ? '出發地' : '出發機場'}</span><input name="origin" list="origin-list" value="${escapeHtml(trip.origin)}" placeholder="${domestic ? '輸入城市、車站或地點' : '機場代碼或名稱'}">${datalist('origin-list', routeOptions)}</label><label><span class="destination-label">${domestic ? '旅遊目的地' : '目的地機場'}</span><input name="destination" list="destination-list" value="${escapeHtml(trip.destination)}" placeholder="${domestic ? '輸入城市、車站或地點' : '依國家搜尋機場'}">${datalist('destination-list', destinationOptions)}</label></div>${formField('start', '開始日期與時間', trip.start, 'datetime-local')}${formField('end', '結束日期與時間', trip.end, 'datetime-local')}<div class="international-flight-fields full" ${domestic ? 'hidden' : ''}><div class="form-pair"><label>出國航空公司<input name="airline" list="airline-list" value="${escapeHtml(trip.airline)}" placeholder="搜尋航空公司">${datalist('airline-list', airlines)}</label>${formField('flight', '出國航班編號', trip.flight)}</div><label class="inline-check"><input name="sameReturnAirline" type="checkbox" ${trip.sameReturnAirline ? 'checked' : ''}><span>回國航班同出國航空公司</span></label><div class="form-pair return-flight-pair"><label class="return-airline-field" ${trip.sameReturnAirline ? 'hidden' : ''}>回國航空公司<input name="returnAirline" list="airline-list" value="${escapeHtml(trip.returnAirline)}" placeholder="輸入或搜尋航空公司"></label>${formField('returnFlight', '回國航班編號', trip.returnFlight)}</div></div><div class="form-pair full domestic-transport-fields" ${domestic ? '' : 'hidden'}><label>主要交通方式<select name="domesticTransport"><option value="">請選擇</option>${DOMESTIC_TRANSPORTS.map(item => `<option ${item === trip.domesticTransport ? 'selected' : ''}>${item}</option>`).join('')}</select></label>${formField('transportDetail', '班次／車次（選填）', trip.transportDetail, 'text', 'placeholder="例如：高鐵 813、台鐵 112 次"')}</div><div class="form-pair people-pair full">${formField('people', '人數', trip.people, 'number', 'min="1"')}${formField('companions', '同行旅伴', trip.companions, 'text', 'placeholder="以頓號分隔"')}</div><div class="form-pair budget-pair full"><label>預算幣別<input name="budgetCurrency" list="currency-list" value="${escapeHtml(trip.budgetCurrency)}" placeholder="例如 TWD、JPY">${datalist('currency-list', ['TWD', 'JPY', 'KRW', 'USD', 'MYR', 'THB', 'HKD', 'CNY', 'SGD', 'EUR', 'GBP', 'AUD'])}</label>${formField('budget', '預算金額', trip.budget, 'number', 'min="0"')}</div>${formField('status', '狀態', trip.status, 'text', 'placeholder="例如：規劃中、已確認"')}<div class="full cover-uploader"><span class="field-label">旅程封面圖片</span><input name="coverImage" type="hidden" value="${escapeHtml(trip.coverImage)}"><div class="cover-upload-row"><div class="cover-preview" style="--preview:url('${tripImage(trip)}');--fallback:${country.color}" role="img" aria-label="旅程封面預覽"></div><div><label class="button button-soft upload-button">上載圖片<input id="cover-upload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><button class="button button-ghost" type="button" data-remove-cover>使用國家圖片</button><p class="helper">圖片會壓縮後保存在這個瀏覽器，建議小於 10MB。</p></div></div></div><div class="full"><span class="field-label">城市（可複選）</span><div class="city-add"><input id="custom-city-input" type="text" placeholder="輸入城市後按 Enter"><button class="button button-soft" type="button" data-add-city>＋ 新增城市</button></div><div class="city-chips" id="city-chips"></div></div></div></section>
+  <section class="editor-panel" data-panel="overview"><div class="form-grid">${formField('title', '旅程名稱', trip.title, 'text', 'required placeholder="例如：台南美食小旅行"')}<label>國家／地區<input name="country" list="country-list" value="${escapeHtml(trip.country)}" required placeholder="輸入或選擇國家">${datalist('country-list', countries)}</label><label class="full">旅遊類型<select name="travelScope"><option value="international" ${domestic ? '' : 'selected'}>國外旅遊</option><option value="domestic" ${domestic ? 'selected' : ''}>國內旅遊</option></select></label><div class="form-pair full route-fields"><label><span class="origin-label">${domestic ? '出發地' : '出發機場'}</span><input name="origin" list="origin-list" value="${escapeHtml(trip.origin)}" placeholder="${domestic ? '輸入城市、車站或地點' : '機場代碼或名稱'}">${datalist('origin-list', routeOptions)}</label><label><span class="destination-label">${domestic ? '旅遊目的地' : '目的地機場'}</span><input name="destination" list="destination-list" value="${escapeHtml(trip.destination)}" placeholder="${domestic ? '輸入城市、車站或地點' : '依國家搜尋機場'}">${datalist('destination-list', destinationOptions)}</label></div>${formField('start', '開始日期與時間', trip.start, 'datetime-local')}${formField('end', '結束日期與時間', trip.end, 'datetime-local')}<div class="international-flight-fields full" ${domestic ? 'hidden' : ''}><div class="form-pair"><label>出國航空公司<input name="airline" list="airline-list" value="${escapeHtml(trip.airline)}" placeholder="搜尋航空公司">${datalist('airline-list', airlines)}</label>${formField('flight', '出國航班編號', trip.flight)}</div><label class="inline-check"><input name="sameReturnAirline" type="checkbox" ${trip.sameReturnAirline ? 'checked' : ''}><span>回國航班同出國航空公司</span></label><div class="form-pair return-flight-pair"><label class="return-airline-field" ${trip.sameReturnAirline ? 'hidden' : ''}>回國航空公司<input name="returnAirline" list="airline-list" value="${escapeHtml(trip.returnAirline)}" placeholder="輸入或搜尋航空公司"></label>${formField('returnFlight', '回國航班編號', trip.returnFlight)}</div></div><div class="form-pair full domestic-transport-fields" ${domestic ? '' : 'hidden'}><label>主要交通方式<select name="domesticTransport"><option value="">請選擇</option>${DOMESTIC_TRANSPORTS.map(item => `<option ${item === trip.domesticTransport ? 'selected' : ''}>${item}</option>`).join('')}</select></label>${formField('transportDetail', '班次／車次（選填）', trip.transportDetail, 'text', 'placeholder="例如：高鐵 813、台鐵 112 次"')}</div><div class="form-pair people-pair full">${formField('people', '人數', trip.people, 'number', 'min="1"')}${formField('companions', '同行旅伴', trip.companions, 'text', 'placeholder="以頓號分隔"')}</div><div class="form-pair budget-pair full"><label>預算幣別<input name="budgetCurrency" list="currency-list" value="${escapeHtml(trip.budgetCurrency)}" placeholder="例如 TWD、JPY">${datalist('currency-list', ['TWD', 'JPY', 'KRW', 'USD', 'MYR', 'THB', 'HKD', 'CNY', 'SGD', 'EUR', 'GBP', 'AUD'])}</label>${formField('budget', '預算金額', trip.budget, 'number', 'min="0"')}</div>${formField('status', '狀態', trip.status, 'text', 'placeholder="例如：規劃中、已確認"')}<div class="full cover-uploader"><span class="field-label">旅程封面圖片</span><input name="coverImage" type="hidden" value="${escapeHtml(trip.coverImage)}"><div class="cover-upload-row"><div class="cover-preview" style="--preview:${escapeHtml(cssImageUrl(tripImage(trip)))};--fallback:${normalizeHex(country.color, DEFAULT_THEME.accent)}" role="img" aria-label="旅程封面預覽"></div><div><label class="button button-soft upload-button">上載圖片<input id="cover-upload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><button class="button button-ghost" type="button" data-remove-cover>使用國家圖片</button><p class="helper">圖片會壓縮後保存在這個瀏覽器，建議小於 10MB。</p></div></div></div><div class="full"><span class="field-label">城市（可複選）</span><div class="city-add"><input id="custom-city-input" type="text" placeholder="輸入城市後按 Enter"><button class="button button-soft" type="button" data-add-city>＋ 新增城市</button></div><div class="city-chips" id="city-chips"></div></div></div></section>
   <section class="editor-panel" data-panel="expenses" hidden><div class="panel-intro"><div><h3>旅行支出</h3><p>旅行日期會自動建立，每個日期只需選擇一次，再於區塊內連續新增消費。</p></div></div>${datalist('expense-category-list', EXPENSE_CATEGORIES)}<div id="expense-day-entries"></div></section>
   <section class="editor-panel" data-panel="itinerary" hidden><div class="panel-intro"><div><h3>每日行程</h3><p>旅行日期會依開始與結束日期自動建立，點擊日期即可展開填寫。</p></div></div><div id="day-entries"></div></section>
   <section class="editor-panel" data-panel="checklist" hidden><div class="panel-intro"><div><h3>旅程準備清單</h3><p>勾選已完成項目，也可以為這趟旅程新增專屬物品。</p></div></div><div id="checklist-entries"></div></section></form>`;
@@ -589,7 +606,7 @@ async function saveTrip(event, id, replacing) {
     catch (error) { alert(error.status === 409 ? `${error.message}\n\n為避免覆蓋別人的修改，請關閉編輯視窗後按「重新載入」，再重新編輯。` : `無法同步協作旅程：${error.message}`); if (submit) { submit.disabled = false; submit.textContent = '儲存旅程'; } return; }
   }
   if (replacing) data.trips = data.trips.map(item => item.id === id ? trip : item); else data.trips.push(trip);
-  if (!saveData()) { if (submit) { submit.disabled = false; submit.textContent = '儲存旅程'; } return; }
+  if (!await saveData()) { if (submit) { submit.disabled = false; submit.textContent = '儲存旅程'; } return; }
   modal.close();
   if (activeCollaboration?.tripId === trip.id) { showToast('修改已同步至所有分享連結'); await refreshSharedView(() => renderCollaborativeTrip(activeCollaboration.id, activeCollaboration.editToken)); return; }
   const linked = loadShareRecords().some(record => record.tripId === trip.id && record.editToken && Number(record.expiresAt) > Date.now());
@@ -600,31 +617,31 @@ async function saveTrip(event, id, replacing) {
   else location.hash = `trip/${encodeURIComponent(trip.id)}`;
 }
 
-async function deleteTrip(trip) { if (!await confirmDeletion(`確定要刪除「${trip.title}」嗎？這趟旅程的行程、支出與清單也會一併移除。`, '刪除整趟旅程')) return; data.trips = data.trips.filter(item => item.id !== trip.id); saveData(); modal.close(); showToast('旅程已刪除'); location.hash = 'home'; route(); }
+async function deleteTrip(trip) { if (!await confirmDeletion(`確定要刪除「${trip.title}」嗎？這趟旅程的行程、支出與清單也會一併移除。`, '刪除整趟旅程')) return; const original = data.trips; data.trips = original.filter(item => item.id !== trip.id); if (!await saveData()) { data.trips = original; return; } modal.close(); showToast('旅程已刪除'); location.hash = 'home'; route(); }
 
 function openNote(country, index, editing = false) {
   const notes = country ? countryNotes(country) : data.notes; const note = notes[index]; if (!note) return;
   if (!editing) { modalFrame(note[0], `<p class="preserve-lines">${linkifyText(note[1])}</p><p class="preserve-lines">${linkifyText(note[2])}</p>`, '<div class="modal-foot"><div class="modal-foot-right"><button class="button button-primary" data-done>知道了</button></div></div>'); modalContent.querySelector('[data-done]').addEventListener('click', () => modal.close()); return; }
   modalFrame('編輯筆記', `<form id="note-form" class="form-grid">${formField('title', '標題', note[0], 'text', 'required')}<label class="full">摘要<textarea name="summary" required>${escapeHtml(note[1])}</textarea></label><label class="full">詳細內容<textarea name="detail">${escapeHtml(note[2])}</textarea></label></form>`, '<div class="modal-foot"><div class="modal-foot-right"><button class="button button-ghost" data-cancel>取消</button><button class="button button-primary" type="submit" form="note-form">儲存筆記</button></div></div>');
-  modalContent.querySelector('[data-cancel]').addEventListener('click', () => modal.close()); modalContent.querySelector('#note-form').addEventListener('submit', event => { event.preventDefault(); const values = new FormData(event.currentTarget); const updated = [values.get('title'), values.get('summary'), values.get('detail')]; if (country) { const list = countryNotes(country).map(item => [...item]); list[index] = updated; data.countryNotes[country] = list; } else data.notes[index] = updated; saveData(); modal.close(); showToast('筆記已儲存'); route(); });
+  modalContent.querySelector('[data-cancel]').addEventListener('click', () => modal.close()); modalContent.querySelector('#note-form').addEventListener('submit', async event => { event.preventDefault(); const values = new FormData(event.currentTarget); const updated = [values.get('title'), values.get('summary'), values.get('detail')]; if (country) { const list = countryNotes(country).map(item => [...item]); list[index] = updated; data.countryNotes[country] = list; } else data.notes[index] = updated; if (!await saveData()) return; modal.close(); showToast('筆記已儲存'); route(); });
 }
 
-function addCountry() { const name = prompt('新國家的名稱'); if (!name?.trim()) return; const clean = name.trim(); if (!data.settings.countries[clean]) data.settings.countries[clean] = { emoji: '🌍', color: '#4f665b', image: '', cities: [], airports: [] }; saveData(); renderSettings(clean); showToast(`${clean} 已加入國家選單`); }
+async function addCountry() { const name = prompt('新國家的名稱'); if (!name?.trim()) return; const clean = name.trim(); if (!data.settings.countries[clean]) data.settings.countries[clean] = { emoji: '🌍', color: '#4f665b', image: '', cities: [], airports: [] }; if (!await saveData()) return; renderSettings(clean); showToast(`${clean} 已加入國家選單`); }
 
-function bindSettingsSubmit(form) {
+async function bindSettingsSubmit(form) {
   if (form.id === 'share-settings') {
     const input = form.elements.shareKey; const key = input.value.trim();
     if (!key) { alert('請輸入線上分享密碼。'); input.focus(); return; }
     const submit = form.querySelector('[type="submit"]'); submit.disabled = true; submit.textContent = '連線測試中…';
-    verifyShareKey(key).then(() => { localStorage.setItem(SHARE_KEY_STORAGE, key); renderSettings(); showToast('分享密碼已儲存，連線正常'); }).catch(error => { alert(`無法儲存分享密碼：${error.message}`); submit.disabled = false; submit.textContent = '儲存並測試'; });
+    verifyShareKey(key).then(() => { localStorage.setItem(accountStorageKey(SHARE_KEY_STORAGE), key); renderSettings(); showToast('分享密碼已儲存，連線正常'); }).catch(error => { alert(`無法儲存分享密碼：${error.message}`); submit.disabled = false; submit.textContent = '儲存並測試'; });
     return;
   }
-  if (form.id === 'country-settings') { const values = Object.fromEntries(new FormData(form)); const original = values.original; const name = values.name.trim(); if (!name) return; const current = countryOf(original); const updated = { ...current, emoji: values.emoji || '🌍', image: values.image, color: values.color || '#4f665b', cities: lines(values.cities), airports: lines(values.airports) }; if (name !== original) delete data.settings.countries[original]; data.settings.countries[name] = updated; data.trips.forEach(trip => { if (trip.country === original) trip.country = name; }); saveData(); renderSettings(name); showToast('國家設定已儲存'); }
-  if (form.id === 'origin-settings') { data.settings.originAirports = lines(new FormData(form).get('origins')); saveData(); renderSettings(); showToast('出發機場已儲存'); }
-  if (form.id === 'airline-settings') { const code = document.querySelector('#airline-airport').value; data.settings.airlinesByAirport[code] = lines(new FormData(form).get('airlines')); saveData(); renderSettings(undefined, code); showToast('航空公司已儲存'); }
-  if (form.id === 'template-settings') { data.settings.checklistTemplates = [...form.querySelectorAll('.template-row')].map(row => ({ category: row.querySelector('.template-category').value.trim() || '其他', items: lines(row.querySelector('.template-items').value) })).filter(group => group.items.length); saveData(); renderSettings(); showToast('準備清單範本已儲存'); }
-  if (form.id === 'home-notes-settings') { data.notes = [...form.querySelectorAll('.note-settings-row')].map(row => [row.querySelector('.note-setting-title').value.trim(), row.querySelector('.note-setting-summary').value.trim(), row.querySelector('.note-setting-detail').value.trim()]); saveData(); renderSettings(); showToast('首頁旅行筆記已儲存'); }
-  if (form.id === 'theme-settings') { const values = Object.fromEntries(new FormData(form)); data.settings.theme = { accent: values.accent, warm: values.warm, background: values.background }; saveData(); applyTheme(); renderSettings(); showToast('網站配色已套用'); }
+  if (form.id === 'country-settings') { const values = Object.fromEntries(new FormData(form)); const original = values.original; const name = values.name.trim(); if (!name) return; const current = countryOf(original); const updated = { ...current, emoji: values.emoji || '🌍', image: values.image, color: values.color || '#4f665b', cities: lines(values.cities), airports: lines(values.airports) }; if (name !== original) delete data.settings.countries[original]; data.settings.countries[name] = updated; data.trips.forEach(trip => { if (trip.country === original) trip.country = name; }); if (!await saveData()) return; renderSettings(name); showToast('國家設定已儲存'); }
+  if (form.id === 'origin-settings') { data.settings.originAirports = lines(new FormData(form).get('origins')); if (!await saveData()) return; renderSettings(); showToast('出發機場已儲存'); }
+  if (form.id === 'airline-settings') { const code = document.querySelector('#airline-airport').value; data.settings.airlinesByAirport[code] = lines(new FormData(form).get('airlines')); if (!await saveData()) return; renderSettings(undefined, code); showToast('航空公司已儲存'); }
+  if (form.id === 'template-settings') { data.settings.checklistTemplates = [...form.querySelectorAll('.template-row')].map(row => ({ category: row.querySelector('.template-category').value.trim() || '其他', items: lines(row.querySelector('.template-items').value) })).filter(group => group.items.length); if (!await saveData()) return; renderSettings(); showToast('準備清單範本已儲存'); }
+  if (form.id === 'home-notes-settings') { data.notes = [...form.querySelectorAll('.note-settings-row')].map(row => [row.querySelector('.note-setting-title').value.trim(), row.querySelector('.note-setting-summary').value.trim(), row.querySelector('.note-setting-detail').value.trim()]); if (!await saveData()) return; renderSettings(); showToast('首頁旅行筆記已儲存'); }
+  if (form.id === 'theme-settings') { const values = Object.fromEntries(new FormData(form)); data.settings.theme = { accent: values.accent, warm: values.warm, background: values.background }; if (!await saveData()) return; applyTheme(); renderSettings(); showToast('網站配色已套用'); }
 }
 
 function safeFilename(value) { return String(value || '旅程').replace(/[\\/:*?"<>|]/g, '-').trim() || '旅程'; }
@@ -823,12 +840,14 @@ function linkedShareForTrip(tripId) {
   return loadShareRecords().find(record => record.tripId === tripId && record.editToken && Number(record.expiresAt) > Date.now());
 }
 
-function applyCloudTrip(onlineShare, tripId) {
+async function applyCloudTrip(onlineShare, tripId) {
   const { sharedTrip, sharedSettings, countryName } = sharedTripBundle(onlineShare.payload); sharedTrip.id = tripId;
   const existingTrip = data.trips.find(item => item.id === tripId); if (!sharedTrip.coverImage && existingTrip?.coverImage?.startsWith('data:')) sharedTrip.coverImage = existingTrip.coverImage;
   const incomingCountry = sharedSettings.countries[countryName]; const localCountry = data.settings.countries[countryName];
   data.settings.countries[countryName] = localCountry ? { ...localCountry, cities: [...new Set([...localCountry.cities, ...sharedTrip.cities])] } : { ...incomingCountry, cities: [...new Set([...incomingCountry.cities, ...sharedTrip.cities])] };
-  data.trips = data.trips.map(item => item.id === tripId ? sharedTrip : item); saveData(); return sharedTrip;
+  data.trips = data.trips.map(item => item.id === tripId ? sharedTrip : item);
+  if (!await saveData()) throw new Error('無法儲存協作旅程');
+  return sharedTrip;
 }
 
 function ownerSyncBanner(record, state = 'ready') {
@@ -877,7 +896,7 @@ async function renderOwnedTrip(tripId) {
     }
     let currentTrip = localTrip; let contentChanged = false; let syncedVersion = remoteVersion; let syncedAt = Number(onlineShare.updatedAt) || record.updatedAt;
     if (remoteVersion > Number(record.version) || (!localChanged && localSignature !== remoteSignature)) {
-      currentTrip = applyCloudTrip(onlineShare, tripId); contentChanged = true; showToast('已取得協作者的最新修改');
+      currentTrip = await applyCloudTrip(onlineShare, tripId); contentChanged = true; showToast('已取得協作者的最新修改');
     } else if (localSignature !== remoteSignature) {
       const result = await updateOnlineShare({ ...record, version: remoteVersion }, localTrip); syncedVersion = result.version; syncedAt = result.updatedAt; showToast('本機修改已同步至雲端');
     }
@@ -896,7 +915,7 @@ async function resolveOwnerSyncConflict(useCloud) {
   if (!activeOwnerSync?.conflict) return; const { record, tripId, onlineShare } = activeOwnerSync; const localTrip = data.trips.find(item => item.id === tripId); if (!localTrip) return;
   try {
     if (useCloud) {
-      const cloudTrip = applyCloudTrip(onlineShare, tripId); updateRememberedShare(record.id, { title: cloudTrip.title, version: onlineShare.version, updatedAt: onlineShare.updatedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: sharePayloadSignature(onlineShare.payload) }); showToast('已套用雲端最新版本');
+      const cloudTrip = await applyCloudTrip(onlineShare, tripId); updateRememberedShare(record.id, { title: cloudTrip.title, version: onlineShare.version, updatedAt: onlineShare.updatedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: sharePayloadSignature(onlineShare.payload) }); showToast('已套用雲端最新版本');
     } else {
       if (!confirm('確定要用這台裝置的內容更新雲端版本嗎？其他裝置的最新修改會被取代。')) return;
       const result = await updateOnlineShare({ ...record, version: Number(onlineShare.version) || 1 }, localTrip); updateRememberedShare(record.id, { title: localTrip.title, version: result.version, updatedAt: result.updatedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: sharePayloadSignature(createSharePayload(localTrip)) }); showToast('已用本機版本更新雲端');
@@ -915,7 +934,7 @@ async function stageSharedRefresh(mode, id, token, latest, tripId = '') {
       activeOwnerSync = { record, tripId, onlineShare: latest, conflict: true };
       replaceSyncBanner('.owner-sync-banner', ownerSyncBanner(record, 'conflict')); return;
     }
-    const cloudTrip = applyCloudTrip(latest, tripId); const syncedRecord = { ...record, title: cloudTrip.title, version: Number(latest.version) || record.version, updatedAt: Number(latest.updatedAt) || record.updatedAt, syncedSignature: remoteSignature };
+    const cloudTrip = await applyCloudTrip(latest, tripId); const syncedRecord = { ...record, title: cloudTrip.title, version: Number(latest.version) || record.version, updatedAt: Number(latest.updatedAt) || record.updatedAt, syncedSignature: remoteSignature };
     updateRememberedShare(record.id, { title: cloudTrip.title, version: syncedRecord.version, updatedAt: syncedRecord.updatedAt, remoteVersion: null, remoteUpdatedAt: null, syncedSignature: remoteSignature });
     activeOwnerSync = { record: syncedRecord, tripId, onlineShare: latest, conflict: false };
     pendingSharedRefresh = { mode, id, tripId };
@@ -927,7 +946,7 @@ async function stageSharedRefresh(mode, id, token, latest, tripId = '') {
     if (!sharedTrip.coverImage && existingTrip?.coverImage?.startsWith('data:')) sharedTrip.coverImage = existingTrip.coverImage;
     const incomingCountry = sharedSettings.countries[countryName]; const localCountry = data.settings.countries[countryName];
     data.settings.countries[countryName] = localCountry ? { ...localCountry, cities: [...new Set([...localCountry.cities, ...sharedTrip.cities])] } : { ...incomingCountry, cities: [...new Set([...incomingCountry.cities, ...sharedTrip.cities])] };
-    data.trips = [...data.trips.filter(item => item.id !== sharedTrip.id), sharedTrip]; saveData();
+    data.trips = [...data.trips.filter(item => item.id !== sharedTrip.id), sharedTrip]; if (!await saveData()) return;
     activeCollaboration = { ...activeCollaboration, id, editToken: token, tripId: sharedTrip.id, version: Number(latest.version) || 1, updatedAt: Number(latest.updatedAt) || 0, expiresAt: Number(latest.expiresAt) || activeCollaboration?.expiresAt || 0 };
     updateRememberedShare(id, { tripId: sharedTrip.id, title: sharedTrip.title, version: activeCollaboration.version, updatedAt: activeCollaboration.updatedAt, syncedSignature: sharePayloadSignature(latest.payload) });
     pendingSharedRefresh = { mode, id, token };
@@ -1039,7 +1058,7 @@ async function renderCollaborativeTrip(id, editToken) {
     const existingTrip = data.trips.find(item => item.id === sharedTrip.id); if (!sharedTrip.coverImage && existingTrip?.coverImage?.startsWith('data:')) sharedTrip.coverImage = existingTrip.coverImage;
     const incomingCountry = sharedSettings.countries[countryName]; const localCountry = data.settings.countries[countryName];
     data.settings.countries[countryName] = localCountry ? { ...localCountry, cities: [...new Set([...localCountry.cities, ...sharedTrip.cities])] } : { ...incomingCountry, cities: [...new Set([...incomingCountry.cities, ...sharedTrip.cities])] };
-    data.trips = [...data.trips.filter(item => item.id !== sharedTrip.id), sharedTrip]; saveData();
+    data.trips = [...data.trips.filter(item => item.id !== sharedTrip.id), sharedTrip]; if (!await saveData()) throw new Error('無法儲存協作旅程');
     activeCollaboration = { id, editToken, tripId: sharedTrip.id, version: Number(onlineShare.version) || 1, updatedAt: Number(onlineShare.updatedAt) || 0, expiresAt: Number(onlineShare.expiresAt) || 0 };
     activeSharedImport = { trip: clone(sharedTrip), country: clone(incomingCountry) };
     updateRememberedShare(id, { tripId: sharedTrip.id, title: sharedTrip.title, version: activeCollaboration.version, updatedAt: activeCollaboration.updatedAt, syncedSignature: sharePayloadSignature(onlineShare.payload) });
@@ -1070,7 +1089,7 @@ function mergeSharedCountry(source) {
   }
 }
 
-function importSharedTrip() {
+async function importSharedTrip() {
   if (!activeSharedImport?.trip) return;
   const source = clone(activeSharedImport.trip); const collaboration = activeCollaboration; const originalData = clone(data);
   mergeSharedCountry(source);
@@ -1078,7 +1097,7 @@ function importSharedTrip() {
   const imported = normalizeTrip(source, data.settings);
   if (collaboration) data.trips = data.trips.filter(trip => trip.id !== collaboration.tripId);
   data.trips.unshift(imported);
-  if (!saveData()) { data = originalData; return; }
+  if (!await saveData()) { data = originalData; return; }
   if (collaboration) rememberCollaborativeTrip(imported, collaboration);
   modal.close(); location.hash = `trip/${encodeURIComponent(imported.id)}`; route(); showToast('已加入我的旅程，可開始編輯');
 }
@@ -1096,7 +1115,7 @@ function openSharedReplaceConfirmation() {
   modalContent.querySelector('[data-confirm-replace]').addEventListener('click', replaceSharedTrip);
 }
 
-function replaceSharedTrip() {
+async function replaceSharedTrip() {
   if (!activeSharedImport?.trip) return;
   const targetId = modalContent.querySelector('[data-replace-trip]')?.value;
   const targetIndex = data.trips.findIndex(trip => trip.id === targetId);
@@ -1105,7 +1124,7 @@ function replaceSharedTrip() {
   mergeSharedCountry(source); source.id = targetId;
   data.trips[targetIndex] = normalizeTrip(source, data.settings);
   if (collaboration) data.trips = data.trips.filter(trip => trip.id !== collaboration.tripId || trip.id === targetId);
-  if (!saveData()) { data = originalData; return; }
+  if (!await saveData()) { data = originalData; return; }
   if (collaboration) rememberCollaborativeTrip(data.trips.find(trip => trip.id === targetId), collaboration);
   modal.close(); location.hash = `trip/${encodeURIComponent(targetId)}`; route(); showToast('已用分享旅程的最新版取代既有規劃');
 }
@@ -1137,10 +1156,10 @@ async function shareTrip(id) {
 }
 
 function backupData() { const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `旅跡備份-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(link.href); showToast('備份檔已下載'); }
-async function importData() { const file = fileInput.files[0]; if (!file) return; try { const imported = normalizeData(JSON.parse(await file.text())); if (!confirm(`將匯入 ${imported.trips.length} 趟旅程並取代目前資料，確定繼續嗎？`)) return; data = imported; saveData(); route(); showToast('資料匯入完成'); } catch (error) { alert(`無法匯入檔案：${error.message}`); } finally { fileInput.value = ''; } }
+async function importData() { const file = fileInput.files[0]; if (!file) return; try { const imported = normalizeData(JSON.parse(await file.text())); if (!confirm(`將匯入 ${imported.trips.length} 趟旅程並取代目前資料，確定繼續嗎？`)) return; const previous = data; data = imported; if (!await saveData()) { data = previous; return; } route(); showToast('資料匯入完成'); } catch (error) { alert(`無法匯入檔案：${error.message}`); } finally { fileInput.value = ''; } }
 
 app.addEventListener('submit', event => { if (event.target.closest('.settings-grid')) { event.preventDefault(); bindSettingsSubmit(event.target); } });
-app.addEventListener('change', event => {
+app.addEventListener('change', async event => {
   if (event.target.id === 'settings-country') renderSettings(event.target.value);
   if (event.target.id === 'airline-airport') renderSettings(undefined, event.target.value);
   if (event.target.matches('[data-quick-check]')) {
@@ -1149,11 +1168,11 @@ app.addEventListener('change', event => {
     const item = trip.checklist[Number(event.target.dataset.groupIndex)]?.items[Number(event.target.dataset.itemIndex)];
     if (!item) return;
     item.checked = event.target.checked;
-    if (!saveData()) { item.checked = !event.target.checked; event.target.checked = item.checked; return; }
+    if (!await saveData()) { item.checked = !event.target.checked; event.target.checked = item.checked; return; }
     updateChecklistProgress(trip); queueChecklistSync(trip.id);
   }
 });
-app.addEventListener('click', event => {
+app.addEventListener('click', async event => {
   const target = event.target.closest('button, a'); if (!target) return; const { action, id, country, index, city, tab } = target.dataset;
   if (target.dataset.tripTab) { switchTripContentTab(target.dataset.tripTab); return; }
   if (target.matches('[data-toggle-trip-day]')) { const card = target.closest('.day-card'); const items = card?.querySelector('.day-items'); if (!items) return; items.hidden = !items.hidden; card.classList.toggle('is-collapsed', items.hidden); target.setAttribute('aria-expanded', String(!items.hidden)); return; }
@@ -1176,8 +1195,8 @@ app.addEventListener('click', event => {
   if (target.dataset.statsScope) { homeStatsScope = target.dataset.statsScope; renderHome(); }
   if (action === 'add-country') addCountry();
   if (action === 'add-template') { document.querySelector('#template-list').insertAdjacentHTML('beforeend', templateEditor()); }
-  if (target.matches('[data-reset-theme]')) { data.settings.theme = clone(DEFAULT_THEME); saveData(); applyTheme(); renderSettings(); showToast('已恢復預設配色'); }
-  if (target.matches('[data-clear-share-key]')) { localStorage.removeItem(SHARE_KEY_STORAGE); renderSettings(); showToast('已清除此裝置的分享密碼'); }
+  if (target.matches('[data-reset-theme]')) { data.settings.theme = clone(DEFAULT_THEME); if (!await saveData()) return; applyTheme(); renderSettings(); showToast('已恢復預設配色'); }
+  if (target.matches('[data-clear-share-key]')) { localStorage.removeItem(accountStorageKey(SHARE_KEY_STORAGE)); renderSettings(); showToast('已清除此裝置的分享密碼'); }
   if (target.dataset.copyShare) { copyShareUrl(onlineShareUrl(target.dataset.copyShare)).then(() => showToast('唯讀連結已複製')); }
   if (target.dataset.copyCollab) { const record = loadShareRecords().find(item => item.id === target.dataset.copyCollab); if (record?.editToken) copyShareUrl(collaborationUrl(record.id, record.editToken)).then(() => showToast('協作編輯連結已複製')); }
   if (target.dataset.revokeShare) revokeShare(target.dataset.revokeShare);
@@ -1187,4 +1206,4 @@ app.addEventListener('click', event => {
 document.querySelector('#new-trip').addEventListener('click', () => openTripEditor()); document.querySelector('#backup').addEventListener('click', backupData); document.querySelector('#import').addEventListener('click', () => fileInput.click()); fileInput.addEventListener('change', importData);
 modal.addEventListener('cancel', event => event.preventDefault());
 document.querySelector('#confirm-close').addEventListener('click', () => closeDeleteConfirmation(false)); document.querySelector('#confirm-cancel').addEventListener('click', () => closeDeleteConfirmation(false)); document.querySelector('#confirm-delete').addEventListener('click', () => closeDeleteConfirmation(true)); confirmDialog.addEventListener('cancel', event => { event.preventDefault(); closeDeleteConfirmation(false); });
-window.addEventListener('hashchange', route); route();
+window.addEventListener('hashchange', route); startAccountSync();

@@ -1,3 +1,5 @@
+import { accountRequest } from './account.js';
+
 function allowedOrigins(env) {
 	return String(env.ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
 }
@@ -11,7 +13,7 @@ function corsHeaders(request, env) {
 	return {
 		...(allowedOrigins(env).includes(origin) ? { 'Access-Control-Allow-Origin': origin } : {}),
 		'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-		'Access-Control-Allow-Headers': 'Content-Type, X-Share-Key, X-Delete-Token, X-Edit-Token',
+		'Access-Control-Allow-Headers': 'Content-Type, X-Share-Key, X-Delete-Token, X-Edit-Token, Authorization, X-Travel-Version',
 		'Access-Control-Max-Age': '86400',
 		Vary: 'Origin',
 	};
@@ -71,6 +73,10 @@ export default {
 
 		if (request.method === 'GET' && url.pathname === '/health') {
 			return json(request, env, { ok: true });
+		}
+
+		if (url.pathname.startsWith('/account/')) {
+			return accountRequest(request, env, url.pathname, requestOriginIsAllowed(request, env), corsHeaders(request, env));
 		}
 
 		if (request.method === 'POST' && url.pathname === '/auth/check') {
@@ -163,5 +169,6 @@ export default {
 
 	async scheduled(_controller, env) {
 		await env.DB.prepare('DELETE FROM shares WHERE expires_at <= ?').bind(Date.now()).run();
+		if (env.GOOGLE_CLIENT_ID) await env.DB.prepare('DELETE FROM account_sessions WHERE expires_at <= ?').bind(Date.now()).run();
 	},
 };

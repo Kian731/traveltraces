@@ -18,6 +18,7 @@
         <span>旅跡</span>
       </a>
       <div class="nav-actions">
+        <button class="button button-ghost" id="account-sync" type="button">登入同步</button>
         <button class="button button-ghost" id="import" type="button">匯入</button>
         <button class="button button-ghost" id="backup" type="button">備份</button>
         <button class="button button-primary" id="new-trip" type="button">
@@ -44,6 +45,13 @@
     <div id="modal-content"></div>
   </dialog>
 
+  <dialog id="account-dialog" aria-labelledby="account-title">
+    <div class="modal-shell">
+      <div class="modal-head"><h2 id="account-title">帳號與同步</h2><button class="icon-button" data-account-close type="button" aria-label="關閉">×</button></div>
+      <div class="modal-body"></div>
+    </div>
+  </dialog>
+
   <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
     <div class="confirm-shell">
       <div class="modal-head"><h2 id="confirm-title">確認刪除</h2><button class="icon-button" id="confirm-close" type="button" aria-label="關閉">×</button></div>
@@ -54,6 +62,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="catalog.js"></script>
+  <script src="account.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

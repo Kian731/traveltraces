@@ -46,6 +46,10 @@ h3 { line-height: 1.4; }
 .brand { justify-self: start; display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 700; letter-spacing: .04em; }
 .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: white; font-family: "Noto Serif TC", serif; font-size: 15px; }
 .nav-actions { justify-self: end; display: flex; align-items: center; gap: 7px; }
+.account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.account-actions .helper { flex-basis: 100%; }
+#account-dialog { width: min(460px, calc(100% - 24px)); }
+[data-account-email] { overflow-wrap: anywhere; }
 .mobile-only { display: none; }
 
 main { width: min(calc(100% - 40px), var(--max)); margin: auto; padding: 38px 0 80px; }
